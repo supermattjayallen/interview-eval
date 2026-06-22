@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Interview Evaluation</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <div class="page">
+    <header class="hero">
+      <div class="hero-copy">
+        <p class="eyebrow">Interview Evaluation</p>
+        <h1>Analyze past interviews. Prepare for the next one.</h1>
+        <p class="subtitle">
+          Extract questions from recordings, save them, and generate likely questions for upcoming interviews from saved data and job descriptions.
+        </p>
+      </div>
+    </header>
+
+    <main class="layout">
+      <nav class="tabs">
+        <button class="tab active" type="button" data-tab="analyze">Analyze recording</button>
+        <button class="tab" type="button" data-tab="prepare">Prepare for interview</button>
+      </nav>
+
+      <section id="analyze-panel" class="tab-panel active">
+        <section class="card form-card">
+          <form id="analysis-form">
+            <label class="field-label" for="recording-url">Recording link</label>
+            <input
+              id="recording-url"
+              name="recording_url"
+              type="url"
+              placeholder="https://loom.com/share/... or direct .mp4 / .mp3 link"
+              autocomplete="url"
+            >
+
+            <label class="field-label" for="recording-urls-batch">Or multiple recordings</label>
+            <textarea
+              id="recording-urls-batch"
+              name="recording_urls_batch"
+              rows="4"
+              placeholder="Paste one recording link per line to process them one by one"
+            ></textarea>
+            <p class="hint">Up to 20 links. Shared optional context applies to all recordings.</p>
+            <label class="checkbox-row batch-only-hint">
+              <input id="skip-evaluation" name="skip_evaluation" type="checkbox" checked>
+              Skip answer evaluation for batch (cheaper — builds question bank only)
+            </label>
+
+            <details class="advanced">
+              <summary>Optional context</summary>
+              <div class="advanced-grid">
+                <div class="field">
+                  <label for="role-title">Role title</label>
+                  <input id="role-title" name="role_title" type="text" placeholder="Senior Backend Engineer">
+                </div>
+                <div class="field">
+                  <label for="role-description">Role description</label>
+                  <textarea
+                    id="role-description"
+                    name="role_description"
+                    rows="3"
+                    placeholder="Required skills, responsibilities, seniority..."
+                  ></textarea>
+                </div>
+                <div class="field">
+                  <label for="interview-step">Interview step</label>
+                  <select id="interview-step" name="interview_step">
+                    <option value="">Auto-detect from questions</option>
+                  </select>
+                  <p class="hint">Leave blank to infer the step from the interview content.</p>
+                </div>
+                <div class="field">
+                  <label for="first-speaker">Who speaks first?</label>
+                  <select id="first-speaker" name="first_speaker">
+                    <option value="interviewer" selected>Interviewer</option>
+                    <option value="candidate">Candidate</option>
+                  </select>
+                </div>
+                <div class="field full-width">
+                  <label for="evaluation-criteria">Evaluation criteria</label>
+                  <input
+                    id="evaluation-criteria"
+                    name="evaluation_criteria"
+                    type="text"
+                    placeholder="system design depth, communication clarity, problem solving"
+                  >
+                  <p class="hint">Comma-separated list</p>
+                </div>
+                <div class="field full-width">
+                  <label class="checkbox-row">
+                    <input id="force-refresh" name="force_refresh" type="checkbox">
+                    Re-analyze even if this recording was processed before
+                  </label>
+                </div>
+              </div>
+            </details>
+
+            <button id="submit-btn" type="submit">Analyze interview</button>
+          </form>
+
+          <div id="status-panel" class="status-panel hidden" aria-live="polite">
+            <div class="status-header">
+              <span id="status-label" class="status-label">Queued</span>
+              <span id="status-message" class="status-message"></span>
+            </div>
+            <div class="progress-track">
+              <div id="progress-bar" class="progress-bar"></div>
+            </div>
+          </div>
+
+          <div id="error-panel" class="error-panel hidden" role="alert"></div>
+        </section>
+
+          <div id="batch-results" class="card hidden">
+            <h2>Batch results</h2>
+            <div id="batch-summary" class="body-text"></div>
+            <div id="batch-items" class="batch-list"></div>
+          </div>
+
+          <section id="results" class="results hidden">
+          <nav class="results-nav" aria-label="Jump to section">
+            <a href="#results-summary">Summary</a>
+            <a href="#results-qa">Q&amp;A</a>
+            <a href="#results-feedback">Feedback</a>
+          </nav>
+          <div id="results-summary" class="summary-grid">
+            <article class="summary-card">
+              <p class="summary-label">Average score</p>
+              <p id="average-score" class="summary-value">-</p>
+            </article>
+            <article class="summary-card">
+              <p class="summary-label">Questions</p>
+              <p id="total-questions" class="summary-value">-</p>
+            </article>
+            <article class="summary-card wide">
+              <p class="summary-label">Recommendation</p>
+              <p id="recommendation" class="summary-text">-</p>
+            </article>
+          </div>
+
+          <article class="card">
+            <h2>Interview summary</h2>
+            <p id="transcript-summary" class="body-text"></p>
+            <details class="transcript-details">
+              <summary>Speaker-labeled transcript excerpt</summary>
+              <pre id="labeled-transcript" class="transcript-box"></pre>
+            </details>
+            <div class="chip-row">
+              <div>
+                <p class="chip-title">Topics covered</p>
+                <div id="topics-covered" class="chips"></div>
+              </div>
+              <div>
+                <p class="chip-title">Highlights</p>
+                <div id="highlights" class="chips chips-positive"></div>
+              </div>
+              <div>
+                <p class="chip-title">Red flags</p>
+                <div id="red-flags" class="chips chips-warning"></div>
+              </div>
+            </div>
+          </article>
+
+          <section id="results-qa" class="card">
+            <div class="section-heading">
+              <h2>Questions &amp; answers</h2>
+              <p class="section-note">Full extracted answers with suggested better responses.</p>
+            </div>
+            <div id="qa-list" class="qa-list"></div>
+          </section>
+
+          <div id="results-feedback" class="feedback-grid">
+            <article class="card">
+              <h2>Candidate feedback</h2>
+              <ul id="candidate-feedback" class="feedback-list"></ul>
+            </article>
+            <article class="card">
+              <h2>Interviewer feedback</h2>
+              <ul id="interviewer-feedback" class="feedback-list"></ul>
+            </article>
+          </div>
+        </section>
+      </section>
+
+      <section id="prepare-panel" class="tab-panel">
+        <section class="card form-card">
+          <form id="prep-form">
+            <label class="field-label" for="saved-job">Saved job description</label>
+            <select id="saved-job" name="job_id">
+              <option value="">New job description</option>
+            </select>
+
+            <div class="advanced-grid">
+              <div class="field">
+                <label for="prep-interview-step">Interview step you are preparing for</label>
+                <select id="prep-interview-step" name="interview_step" required>
+                  <option value="">Select interview step</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="prep-role-title">Role title</label>
+                <input id="prep-role-title" name="role_title" type="text" required placeholder="Senior Backend Engineer">
+              </div>
+              <div class="field">
+                <label for="prep-company">Company</label>
+                <input id="prep-company" name="company" type="text" placeholder="Acme Corp">
+              </div>
+              <div class="field full-width">
+                <label for="prep-role-description">Job description</label>
+                <textarea
+                  id="prep-role-description"
+                  name="role_description"
+                  rows="8"
+                  required
+                  placeholder="Paste the job description: responsibilities, required skills, seniority, tech stack..."
+                ></textarea>
+              </div>
+              <div class="field full-width">
+                <label class="checkbox-row">
+                  <input id="save-job-description" name="save_job_description" type="checkbox" checked>
+                  Save this job description for next time
+                </label>
+              </div>
+            </div>
+
+            <button id="prep-submit-btn" type="submit">Get possible questions</button>
+          </form>
+
+          <div id="prep-error-panel" class="error-panel hidden" role="alert"></div>
+        </section>
+
+        <section id="prep-results" class="results hidden">
+          <nav class="results-nav" aria-label="Jump to section">
+            <a href="#prep-summary-section">Summary</a>
+            <a href="#prep-questions-section">Questions</a>
+          </nav>
+          <div id="prep-summary-section" class="summary-grid">
+            <article class="summary-card">
+              <p class="summary-label">Predicted questions</p>
+              <p id="prep-total-questions" class="summary-value">-</p>
+            </article>
+            <article class="summary-card">
+              <p class="summary-label">Same-step interviews used</p>
+              <p id="prep-matching-interviews" class="summary-value">-</p>
+            </article>
+            <article class="summary-card">
+              <p class="summary-label">Past questions sampled</p>
+              <p id="prep-bank-sample" class="summary-value">-</p>
+            </article>
+            <article class="summary-card wide">
+              <p class="summary-label">Preparation summary</p>
+              <p id="prep-summary" class="summary-text">-</p>
+            </article>
+          </div>
+
+          <article class="card">
+            <p id="prep-step-label" class="body-text"></p>
+            <h2>Focus areas</h2>
+            <div id="prep-focus-areas" class="chips"></div>
+          </article>
+
+          <section id="prep-questions-section" class="card">
+            <div class="section-heading">
+              <h2>Likely interview questions</h2>
+              <p class="section-note">Based on a deduplicated sample of your saved question bank and your job description.</p>
+            </div>
+            <div id="prep-question-list" class="qa-list"></div>
+          </section>
+        </section>
+      </section>
+    </main>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,19 @@
+services:
+  interview-eval:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8002:8002"
+    env_file:
+      - .env
+    environment:
+      TEMP_DIR: /app/tmp
+      RESULTS_DIR: /app/data/results
+      JOBS_DIR: /app/data/jobs
+    volumes:
+      - interview-data:/app/data
+      - interview-tmp:/app/tmp
+
+volumes:
+  interview-data:
+  interview-tmp:
