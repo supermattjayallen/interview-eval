@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from app.auth import TeamBasicAuthMiddleware, team_auth_enabled
 from app.interview_steps import INTERVIEW_STEP_LABELS, InterviewStep
 from app.models import (
     AnalysisJobResponse,
@@ -39,6 +40,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+if team_auth_enabled():
+    app.add_middleware(TeamBasicAuthMiddleware)
+    logging.getLogger(__name__).info("Team login enabled (HTTP Basic Auth)")
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 

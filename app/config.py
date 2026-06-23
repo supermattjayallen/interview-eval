@@ -28,6 +28,8 @@ class Settings(BaseSettings):
     google_drive_enabled: bool = False
     google_drive_credentials_path: str = "./credentials/google-service-account.json"
     google_drive_folder_id: str = ""
+    team_username: str = ""
+    team_password: str = ""
 
 
 settings = Settings()

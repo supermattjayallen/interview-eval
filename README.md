@@ -35,6 +35,80 @@ uvicorn app.main:app --reload --reload-dir app --port 8002
 
 Open http://localhost:8002 for the web UI, or http://localhost:8002/docs for the API explorer.
 
+## Share with your team
+
+One person deploys the service; teammates open a URL in their browser. They do **not** need to clone the repo or have an OpenAI API key.
+
+### 1. Deploy on a shared machine
+
+Use any computer or VM your team can reach (office server, cloud VM, etc.):
+
+```bash
+git clone https://github.com/supermattjayallen/interview-eval
+cd interview-eval
+cp .env.example .env
+```
+
+Edit `.env`:
+
+```bash
+OPENAI_API_KEY=sk-your-org-key-here
+TEAM_USERNAME=your-team
+TEAM_PASSWORD=pick-a-strong-shared-password
+```
+
+Start the service:
+
+```bash
+docker compose up -d --build
+```
+
+The service listens on port **8002**. Teammates visit:
+
+```
+http://<server-ip-or-hostname>:8002
+```
+
+The browser will prompt for the team username and password. Share those credentials with your teammates (not the OpenAI key).
+
+### 2. What teammates do
+
+1. Open the URL above
+2. Enter the team username/password when prompted
+3. Paste a recording link and analyze, or use **Prepare for interview**
+
+No local setup required.
+
+### 3. Shared data
+
+All analyses and job descriptions are stored on the server (`data/` volume). Everyone benefits from the same question bank for interview prep.
+
+### 4. Security notes
+
+- Keep `OPENAI_API_KEY` only on the server — never share it with teammates
+- Always set `TEAM_USERNAME` and `TEAM_PASSWORD` before exposing the service on a network
+- For production use, put HTTPS in front (e.g. Caddy or nginx with a TLS certificate)
+- Restrict network access with a firewall or VPN if the service is not on the public internet
+
+### Windows VPS (no Docker)
+
+On a Windows server without Docker:
+
+```powershell
+cd interview-eval
+powershell -ExecutionPolicy Bypass -File .\scripts\install-vps.ps1
+# Edit .env — set OPENAI_API_KEY (team login is created automatically)
+powershell -ExecutionPolicy Bypass -File .\scripts\start-server.ps1
+```
+
+Optional: start automatically on boot:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\register-startup-task.ps1
+```
+
+Also open port **8002** in your cloud provider's firewall (security group), not only Windows Firewall.
+
 ## API usage
 
 ### Async (recommended for long recordings)
@@ -192,6 +266,8 @@ Lookup order:
 | `WHISPER_MODEL` | `whisper-1` | Transcription model |
 | `TEMP_DIR` | `./tmp` | Temp storage for downloads |
 | `RESULTS_DIR` | `./data/results` | Local saved Q&A storage |
+| `TEAM_USERNAME` | (empty) | Shared login username for teammates |
+| `TEAM_PASSWORD` | (empty) | Shared login password for teammates |
 | `GOOGLE_DRIVE_ENABLED` | `false` | Sync saved results to Google Drive |
 | `GOOGLE_DRIVE_CREDENTIALS_PATH` | `./credentials/google-service-account.json` | Service account key |
 | `GOOGLE_DRIVE_FOLDER_ID` | (empty) | Shared Drive folder ID |
@@ -200,7 +276,7 @@ Lookup order:
 
 - **No speaker diarization yet** — the LLM infers interviewer vs candidate from context. For higher accuracy, integrate AssemblyAI or Deepgram for speaker labels.
 - **In-memory job store** — active jobs are lost on restart, but completed Q&A is persisted locally/Drive.
-- **Single-tenant** — no auth or multi-user support yet.
+- **Shared team login** — optional HTTP Basic Auth (`TEAM_USERNAME` / `TEAM_PASSWORD`); no per-user accounts yet.
 - **Cost** — Whisper + GPT-4o usage scales with recording length.
 
 Possible enhancements:
