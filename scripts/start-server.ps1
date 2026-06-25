@@ -22,5 +22,10 @@ New-Item -ItemType Directory -Force -Path (Join-Path $Root "tmp") | Out-Null
 New-Item -ItemType Directory -Force -Path (Join-Path $Root "data\results") | Out-Null
 New-Item -ItemType Directory -Force -Path (Join-Path $Root "data\jobs") | Out-Null
 
+$FfmpegBin = Join-Path $Root "tools\ffmpeg\bin"
+if (Test-Path (Join-Path $FfmpegBin "ffmpeg.exe")) {
+    $env:PATH = "$FfmpegBin;$env:PATH"
+}
+
 Write-Host "Starting Interview Evaluation Service on http://0.0.0.0:8002"
 & $Python -m uvicorn app.main:app --host 0.0.0.0 --port 8002

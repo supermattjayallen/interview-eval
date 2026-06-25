@@ -16,9 +16,26 @@ from app.services.step_inferrer import infer_interview_step
 
 logger = logging.getLogger(__name__)
 
-SUMMARY_SYSTEM_PROMPT = """You summarize interview results based on already-extracted question-and-answer pairs.
+SUMMARY_SYSTEM_PROMPT = """You write interview debriefs focused on helping the candidate improve.
 
-Do not invent new questions or answers.
+Feedback must be SPECIFIC and ACTIONABLE. Every bullet must cite a topic, question, or moment from the interview.
+
+Never write vague advice such as:
+- "Provide more specific examples"
+- "Communicate more clearly"
+- "Elaborate on your experience"
+
+candidate_feedback (5-8 bullets):
+- Tell the candidate exactly what to change in future answers
+- Reference the question topic (not question number)
+- Say what was missing, what to lead with, or a better structure
+- Prioritize the lowest-scoring answers and recurring gaps across questions
+
+overall_recommendation:
+- One of: hire / no-hire / needs-follow-up
+- Include 2-3 concrete reasons tied to scores, gaps, and role fit
+
+Use only evidence from the provided Q&A evaluations. Do not invent questions or answers.
 Return valid JSON only."""
 
 
@@ -72,7 +89,6 @@ def analyze_interview(request: InterviewAnalysisRequest, transcript: str) -> Int
         interview_step=interview_step,
         interview_step_inferred=interview_step_inferred,
         transcript_summary=summary["transcript_summary"],
-        labeled_transcript_excerpt=_excerpt(labeled_transcript),
         total_questions=len(qa_pairs),
         average_score=average_score,
         qa_pairs=qa_pairs,
@@ -132,7 +148,6 @@ def reevaluate_interview(
         interview_step=interview_step,
         interview_step_inferred=interview_step_inferred,
         transcript_summary=summary["transcript_summary"],
-        labeled_transcript_excerpt=cached_result.labeled_transcript_excerpt,
         total_questions=len(evaluated_pairs),
         average_score=average_score,
         qa_pairs=evaluated_pairs,
@@ -181,7 +196,6 @@ def _skipped_evaluation_summary(total_questions: int) -> dict:
         "highlights": [],
         "feedback": {
             "candidate_feedback": [],
-            "interviewer_feedback": [],
             "overall_recommendation": "Not evaluated — question bank mode.",
         },
     }
@@ -190,39 +204,79 @@ def _skipped_evaluation_summary(total_questions: int) -> dict:
 def _build_summary(request: InterviewAnalysisRequest, evaluated_pairs: list[dict]) -> dict:
     client = OpenAI(api_key=settings.openai_api_key)
 
-    compact_pairs = [
+    pair_summaries = []
+    for index, item in enumerate(evaluated_pairs, start=1):
+        pair_summaries.append(
+            {
+                "number": index,
+                "question": item["question"],
+                "score": item["score"],
+                "quality": item["quality"],
+                "strengths": item["strengths"],
+                "gaps": item["gaps"],
+                "ideal_answer_points": item["ideal_answer_points"],
+                "answer_excerpt": item["answer"][:600],
+            }
+        )
+
+    sorted_pairs = sorted(evaluated_pairs, key=lambda item: item["score"])
+    weakest = [
         {
-            "question": item["question"],
-            "answer_excerpt": item["answer"][:500],
+            "question": item["question"][:200],
             "score": item["score"],
-            "quality": item["quality"],
+            "gaps": item["gaps"],
         }
-        for item in evaluated_pairs
+        for item in sorted_pairs[:3]
     ]
+    strongest = [
+        {
+            "question": item["question"][:200],
+            "score": item["score"],
+            "strengths": item["strengths"],
+        }
+        for item in sorted_pairs[-3:]
+    ]
+    average_score = round(
+        sum(item["score"] for item in evaluated_pairs) / len(evaluated_pairs),
+        1,
+    )
 
     context_parts = []
     if request.role_title:
         context_parts.append(f"Role title: {request.role_title}")
     if request.role_description:
         context_parts.append(f"Role description: {request.role_description}")
+    if request.evaluation_criteria:
+        context_parts.append("Evaluation criteria:\n- " + "\n- ".join(request.evaluation_criteria))
 
-    user_prompt = f"""Create a high-level interview summary from these extracted Q&A pairs.
+    user_prompt = f"""Create an interview debrief from these evaluated Q&A pairs.
 
-{chr(10).join(context_parts) if context_parts else ""}
+{chr(10).join(context_parts) if context_parts else "No extra role context provided."}
 
-Q&A pairs:
-{json.dumps(compact_pairs, indent=2)}
+Interview stats:
+- Total questions: {len(evaluated_pairs)}
+- Average score: {average_score}/10
+
+Weakest answers (focus candidate_feedback here):
+{json.dumps(weakest, indent=2)}
+
+Strongest answers (reference in highlights and recommendation):
+{json.dumps(strongest, indent=2)}
+
+All evaluated Q&A pairs:
+{json.dumps(pair_summaries, indent=2)}
 
 Return JSON:
 {{
-  "transcript_summary": "2-3 sentence overview",
+  "transcript_summary": "2-3 sentence overview of performance and role fit",
   "topics_covered": ["topic1", "topic2"],
-  "red_flags": ["concern if any"],
-  "highlights": ["strong moment if any"],
+  "red_flags": ["specific concern tied to an answer, or empty list"],
+  "highlights": ["specific strong moment tied to a question topic"],
   "feedback": {{
-    "candidate_feedback": ["actionable advice"],
-    "interviewer_feedback": ["actionable advice"],
-    "overall_recommendation": "hire/no-hire/needs-follow-up with rationale"
+    "candidate_feedback": [
+      "Specific advice citing the question topic and what to say differently"
+    ],
+    "overall_recommendation": "hire|no-hire|needs-follow-up — 2-3 sentence rationale"
   }}
 }}"""
 
@@ -245,8 +299,3 @@ Return JSON:
     except json.JSONDecodeError as exc:
         raise AnalysisError(f"Failed to parse interview summary: {exc}") from exc
 
-
-def _excerpt(labeled_transcript: str, max_chars: int = 4000) -> str:
-    if len(labeled_transcript) <= max_chars:
-        return labeled_transcript
-    return labeled_transcript[:max_chars] + "\n... [transcript truncated for display]"

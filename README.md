@@ -176,7 +176,6 @@ python cli.py "https://example.com/interview.mp4" \
   ],
   "feedback": {
     "candidate_feedback": ["Practice structured system design answers using a clear framework"],
-    "interviewer_feedback": ["Follow up on distributed systems experience earlier"],
     "overall_recommendation": "Needs follow-up — strong fundamentals but gaps in distributed systems"
   }
 }

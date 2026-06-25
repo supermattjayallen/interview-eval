@@ -65,10 +65,6 @@ class InterviewFeedback(BaseModel):
         default_factory=list,
         description="Actionable feedback for the candidate to improve future interviews",
     )
-    interviewer_feedback: list[str] = Field(
-        default_factory=list,
-        description="Suggestions for the interviewer to improve question quality and assessment",
-    )
     overall_recommendation: str = Field(
         ...,
         description="Hire / no-hire / needs follow-up recommendation with rationale",
@@ -84,10 +80,6 @@ class InterviewAnalysisResult(BaseModel):
         description="True when interview_step was auto-detected because the user did not select one",
     )
     transcript_summary: str
-    labeled_transcript_excerpt: str = Field(
-        default="",
-        description="Speaker-labeled transcript excerpt used for analysis",
-    )
     total_questions: int
     average_score: float
     qa_pairs: list[QuestionAnswerPair]

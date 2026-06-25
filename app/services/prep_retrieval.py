@@ -236,3 +236,116 @@ def _to_prompt_item(item: AggregatedQuestion) -> dict:
     if item.topics:
         payload["topics"] = sorted(item.topics)[:5]
     return payload
+
+
+def _canonical_token(token: str) -> str:
+    aliases = {
+        "caching": "cache",
+        "cached": "cache",
+        "databases": "database",
+        "kubernetes": "k8s",
+        "microservices": "microservice",
+        "behavioural": "behavioral",
+        "behaviors": "behavior",
+        "programming": "program",
+        "engineers": "engineer",
+        "experiences": "experience",
+        "questions": "question",
+    }
+    return aliases.get(token, token)
+
+
+def _tokenize_canonical(text: str) -> set[str]:
+    return {_canonical_token(token) for token in _tokenize(text)}
+
+
+_INTENT_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
+    (
+        "intro",
+        re.compile(
+            r"(tell me about yourself|introduce yourself|walk me through your (background|career|experience)|two minute intro|brief intro)",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "motivation",
+        re.compile(
+            r"(why (do you want|are you interested)|what (attracted|draws) you|why this (role|company|position|job))",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "salary",
+        re.compile(r"(salary|compensation|pay (range|expectation)|expected (salary|comp))", re.IGNORECASE),
+    ),
+    (
+        "availability",
+        re.compile(r"(start date|when can you start|notice period|availability|timeline to join)", re.IGNORECASE),
+    ),
+    (
+        "weakness",
+        re.compile(r"(greatest weakness|area(s)? (for )?improvement|what would you improve)", re.IGNORECASE),
+    ),
+    (
+        "conflict",
+        re.compile(
+            r"(conflict|disagree|difficult (coworker|teammate|stakeholder|situation))",
+            re.IGNORECASE,
+        ),
+    ),
+]
+
+
+def _question_intents(text: str) -> set[str]:
+    intents: set[str] = set()
+    for name, pattern in _INTENT_PATTERNS:
+        if pattern.search(text):
+            intents.add(name)
+    return intents
+
+
+def questions_are_similar(left: str, right: str, threshold: float = 0.5) -> bool:
+    """Return True when two questions likely ask the same thing."""
+    left_norm = normalize_question(left)
+    right_norm = normalize_question(right)
+    if not left_norm or not right_norm:
+        return False
+    if left_norm == right_norm:
+        return True
+
+    if _question_intents(left) & _question_intents(right):
+        return True
+
+    shorter, longer = (
+        (left_norm, right_norm) if len(left_norm) <= len(right_norm) else (right_norm, left_norm)
+    )
+    if len(shorter) >= 15 and shorter in longer:
+        return True
+
+    left_tokens = _tokenize_canonical(left)
+    right_tokens = _tokenize_canonical(right)
+    if not left_tokens or not right_tokens:
+        return False
+
+    intersection = len(left_tokens & right_tokens)
+    if intersection < 2:
+        return False
+
+    smaller = min(len(left_tokens), len(right_tokens))
+    union = len(left_tokens | right_tokens)
+    if intersection / smaller >= threshold:
+        return True
+    return union > 0 and intersection / union >= threshold
+
+
+def dedupe_predicted_questions(questions: list) -> list:
+    """Drop near-duplicate predicted questions, preserving first occurrence."""
+    kept = []
+    for item in questions:
+        question = str(getattr(item, "question", "")).strip()
+        if not question:
+            continue
+        if any(questions_are_similar(question, existing.question) for existing in kept):
+            continue
+        kept.append(item)
+    return kept

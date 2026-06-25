@@ -229,15 +229,12 @@ function renderResults(result) {
   document.getElementById("total-questions").textContent = String(result.total_questions);
   document.getElementById("recommendation").textContent = result.feedback.overall_recommendation;
   document.getElementById("transcript-summary").textContent = buildSummaryLine(result);
-  document.getElementById("labeled-transcript").textContent =
-    result.labeled_transcript_excerpt || "Not available";
 
   renderChips("topics-covered", result.topics_covered);
   renderChips("highlights", result.highlights, "chips-positive");
   renderChips("red-flags", result.red_flags, "chips-warning");
   renderQaList(result.qa_pairs, result.evaluation_skipped);
   renderFeedback("candidate-feedback", result.feedback.candidate_feedback);
-  renderFeedback("interviewer-feedback", result.feedback.interviewer_feedback);
 
   resultsSection.classList.remove("hidden");
   resultsSection.scrollIntoView({ behavior: "smooth", block: "start" });

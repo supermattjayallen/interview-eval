@@ -18,6 +18,9 @@ Write-Host "Installing dependencies..."
 .\.venv\Scripts\python.exe -m pip install --upgrade pip
 .\.venv\Scripts\pip.exe install -r requirements.txt
 
+Write-Host "Installing ffmpeg (required for recordings over 25 MB)..."
+powershell -ExecutionPolicy Bypass -File .\scripts\install-ffmpeg.ps1
+
 New-Item -ItemType Directory -Force -Path "tmp" | Out-Null
 New-Item -ItemType Directory -Force -Path "data\results" | Out-Null
 New-Item -ItemType Directory -Force -Path "data\jobs" | Out-Null

@@ -7,7 +7,7 @@ from app.config import settings
 from app.interview_steps import INTERVIEW_STEP_LABELS, InterviewStep
 from app.models import InterviewPrepRequest, InterviewPrepResult, PredictedQuestion
 from app.services.job_store import job_store
-from app.services.prep_retrieval import build_prep_bank_selection
+from app.services.prep_retrieval import build_prep_bank_selection, dedupe_predicted_questions
 from app.services.result_store import result_store
 
 logger = logging.getLogger(__name__)
@@ -31,6 +31,7 @@ Your job:
 - Use other steps only as weak supplementary context, not as primary source
 - Generate additional step-appropriate questions from the job description
 - When times_seen is present, treat higher values as more common real questions
+- Each question must assess a DIFFERENT topic or skill — never rephrase the same question
 - Return valid JSON only"""
 
 
@@ -117,7 +118,10 @@ Rules:
 - Questions must fit the target step: {step_label}
 - Prefer past questions from the same step, especially those with higher times_seen
 - Do not include questions typical of other rounds unless they also fit this step
-- Aim for 10 to 18 questions when enough same-step data exists, otherwise at least 6"""
+- Each question must cover a distinct topic or skill area
+- Do NOT rephrase the same question in different words (e.g. only one "tell me about yourself", one salary question, one system design topic)
+- If a past question is already in the bank, include it once — do not generate a paraphrased duplicate from the job description
+- Aim for 8 to 14 unique questions when enough same-step data exists, otherwise at least 6"""
 
     try:
         response = client.chat.completions.create(
@@ -139,6 +143,14 @@ Rules:
     try:
         data = json.loads(content)
         predicted = [PredictedQuestion.model_validate(item) for item in data["predicted_questions"]]
+        before_count = len(predicted)
+        predicted = dedupe_predicted_questions(predicted)
+        if before_count > len(predicted):
+            logger.info(
+                "Removed %d near-duplicate predicted questions (%d kept)",
+                before_count - len(predicted),
+                len(predicted),
+            )
         result = InterviewPrepResult(
             role_title=role_title,
             role_description=role_description,

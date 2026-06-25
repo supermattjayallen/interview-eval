@@ -144,10 +144,6 @@
           <article class="card">
             <h2>Interview summary</h2>
             <p id="transcript-summary" class="body-text"></p>
-            <details class="transcript-details">
-              <summary>Speaker-labeled transcript excerpt</summary>
-              <pre id="labeled-transcript" class="transcript-box"></pre>
-            </details>
             <div class="chip-row">
               <div>
                 <p class="chip-title">Topics covered</p>
@@ -172,16 +168,10 @@
             <div id="qa-list" class="qa-list"></div>
           </section>
 
-          <div id="results-feedback" class="feedback-grid">
-            <article class="card">
-              <h2>Candidate feedback</h2>
-              <ul id="candidate-feedback" class="feedback-list"></ul>
-            </article>
-            <article class="card">
-              <h2>Interviewer feedback</h2>
-              <ul id="interviewer-feedback" class="feedback-list"></ul>
-            </article>
-          </div>
+          <article id="results-feedback" class="card">
+            <h2>Candidate feedback</h2>
+            <ul id="candidate-feedback" class="feedback-list"></ul>
+          </article>
         </section>
       </section>
 
@@ -274,6 +264,6 @@
     </main>
   </div>
 
-  <script src="/static/app.js"></script>
+  <script src="/static/app.js?v=3"></script>
 </body>
 </html>

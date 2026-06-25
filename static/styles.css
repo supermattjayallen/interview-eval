@@ -492,33 +492,6 @@ button:disabled {
   line-height: 1.6;
 }
 
-.transcript-details {
-  margin-top: 1rem;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: var(--surface-muted);
-  padding: 0.75rem 1rem;
-}
-
-.transcript-details summary {
-  cursor: pointer;
-  font-family: "Segoe UI", sans-serif;
-  font-weight: 600;
-}
-
-.transcript-box {
-  margin: 0.85rem 0 0;
-  max-height: 280px;
-  overflow: auto;
-  padding: 0.85rem;
-  border-radius: 10px;
-  background: #fff;
-  font-family: "SFMono-Regular", "Consolas", monospace;
-  font-size: 0.78rem;
-  line-height: 1.45;
-  white-space: pre-wrap;
-}
-
 select {
   width: 100%;
   padding: 0.95rem 1rem;

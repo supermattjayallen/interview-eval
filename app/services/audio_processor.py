@@ -2,6 +2,7 @@ import logging
 import math
 import shutil
 import subprocess
+import sys
 import wave
 from pathlib import Path
 
@@ -50,12 +51,12 @@ def _compress_audio(source: Path, destination: Path, bitrate: int) -> None:
         _compress_with_ffmpeg(source, destination, bitrate)
         return
 
-    if Path("/usr/bin/afconvert").exists():
+    if sys.platform == "darwin" and Path("/usr/bin/afconvert").exists():
         _compress_with_afconvert(source, destination, bitrate)
         return
 
     raise AudioProcessingError(
-        "Recording exceeds Whisper's 25 MB limit and no audio compression tool is available."
+        "Recording exceeds Whisper's 25 MB limit. Install ffmpeg and ensure it is on your PATH."
     )
 
 
@@ -95,18 +96,24 @@ def _convert_to_wav(source: Path, destination: Path) -> None:
         _run_command(cmd, "ffmpeg wav conversion failed")
         return
 
-    cmd = [
-        "afconvert",
-        str(source),
-        str(destination),
-        "-d",
-        "LEI16",
-        "-f",
-        "WAVE",
-        "-c",
-        "1",
-    ]
-    _run_command(cmd, "afconvert wav conversion failed")
+    if sys.platform == "darwin" and Path("/usr/bin/afconvert").exists():
+        cmd = [
+            "afconvert",
+            str(source),
+            str(destination),
+            "-d",
+            "LEI16",
+            "-f",
+            "WAVE",
+            "-c",
+            "1",
+        ]
+        _run_command(cmd, "afconvert wav conversion failed")
+        return
+
+    raise AudioProcessingError(
+        "Recording exceeds Whisper's 25 MB limit. Install ffmpeg and ensure it is on your PATH."
+    )
 
 
 def _split_wav(wav_path: Path, output_dir: Path) -> list[Path]:
