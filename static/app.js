@@ -6,6 +6,9 @@ const statusMessage = document.getElementById("status-message");
 const progressBar = document.getElementById("progress-bar");
 const errorPanel = document.getElementById("error-panel");
 const resultsSection = document.getElementById("results");
+const qaList = document.getElementById("qa-list");
+
+let currentAnalysisResult = null;
 
 const STATUS_PROGRESS = {
   pending: 10,
@@ -225,6 +228,7 @@ async function pollJob(jobId) {
 }
 
 function renderResults(result) {
+  currentAnalysisResult = result;
   document.getElementById("average-score").textContent = result.average_score.toFixed(1);
   document.getElementById("total-questions").textContent = String(result.total_questions);
   document.getElementById("recommendation").textContent = result.feedback.overall_recommendation;
@@ -279,13 +283,14 @@ function renderChips(containerId, items, extraClass = "") {
 }
 
 function renderQaList(qaPairs, evaluationSkipped = false) {
-  const container = document.getElementById("qa-list");
+  const container = qaList;
   container.innerHTML = "";
 
   qaPairs.forEach((qa, index) => {
     const scoreLabel = evaluationSkipped ? "—" : `${qa.score}/10`;
     const item = document.createElement("article");
     item.className = "qa-item";
+    item.dataset.qaIndex = String(index);
     item.innerHTML = `
       <div class="qa-top">
         <h3 class="qa-question">Q${index + 1}. ${escapeHtml(qa.question)}</h3>
@@ -303,7 +308,10 @@ function renderQaList(qaPairs, evaluationSkipped = false) {
         evaluationSkipped
           ? ""
           : `<div class="qa-block qa-block-ideal">
-        <h3>Better answer</h3>
+        <div class="qa-block-header">
+          <h3>Better answer</h3>
+          <button type="button" class="qa-regenerate-btn" data-index="${index}">Regenerate</button>
+        </div>
         <p class="qa-ideal-answer">${escapeHtml(qa.ideal_answer || "No suggested answer generated.")}</p>
       </div>
       <div class="qa-columns">
@@ -317,13 +325,70 @@ function renderQaList(qaPairs, evaluationSkipped = false) {
         </div>
         <div>
           <h3>Key points to include</h3>
-          <ul>${renderListItems(qa.ideal_answer_points)}</ul>
+          <ul class="qa-ideal-points">${renderListItems(qa.ideal_answer_points)}</ul>
         </div>
       </div>`
       }
     `;
     container.appendChild(item);
   });
+}
+
+qaList.addEventListener("click", async (event) => {
+  const button = event.target.closest(".qa-regenerate-btn");
+  if (!button || !currentAnalysisResult) {
+    return;
+  }
+
+  const index = Number(button.dataset.index);
+  if (Number.isNaN(index)) {
+    return;
+  }
+
+  clearError();
+  const originalText = button.textContent;
+  button.disabled = true;
+  button.textContent = "Regenerating...";
+
+  try {
+    const response = await fetch("/analyze/regenerate-ideal-answer", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        recording_url: currentAnalysisResult.recording_url,
+        question_index: index,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(await readError(response));
+    }
+
+    const data = await response.json();
+    currentAnalysisResult.qa_pairs[index] = data.qa_pair;
+    updateQaIdealAnswer(index, data.qa_pair);
+  } catch (error) {
+    showError(error.message || "Could not regenerate better answer.");
+  } finally {
+    button.disabled = false;
+    button.textContent = originalText;
+  }
+});
+
+function updateQaIdealAnswer(index, qa) {
+  const item = document.querySelector(`.qa-item[data-qa-index="${index}"]`);
+  if (!item) {
+    return;
+  }
+
+  const ideal = item.querySelector(".qa-ideal-answer");
+  const pointsList = item.querySelector(".qa-ideal-points");
+  if (ideal) {
+    ideal.textContent = qa.ideal_answer || "No suggested answer generated.";
+  }
+  if (pointsList) {
+    pointsList.innerHTML = renderListItems(qa.ideal_answer_points);
+  }
 }
 
 function renderFeedback(containerId, items) {
@@ -368,6 +433,7 @@ function clearError() {
 }
 
 function hideResults() {
+  currentAnalysisResult = null;
   resultsSection.classList.add("hidden");
   hideBatchResults();
 }
@@ -414,6 +480,37 @@ const prepErrorPanel = document.getElementById("prep-error-panel");
 const prepResultsSection = document.getElementById("prep-results");
 const savedJobSelect = document.getElementById("saved-job");
 
+const prepCategoryLabels = {};
+const prepCategoryValues = [];
+
+const PREP_CATEGORY_GROUPS = [
+  { label: "Skills & depth", values: ["technical", "coding", "system_design"] },
+  { label: "You & experience", values: ["behavioral", "experience", "leadership", "role_specific"] },
+  { label: "Fit & logistics", values: ["culture", "logistics", "other"] },
+];
+
+const PREP_CATEGORY_PRESETS = {
+  all: () => [...prepCategoryValues],
+  technical: ["technical", "coding", "system_design", "experience", "role_specific"],
+  behavioral: ["behavioral", "culture", "leadership", "experience"],
+  recruiter: ["behavioral", "experience", "logistics", "culture", "role_specific"],
+  none: () => [],
+};
+
+const STEP_CATEGORY_SUGGESTIONS = {
+  recruiter_screen: ["behavioral", "experience", "logistics", "culture", "role_specific"],
+  hiring_manager: ["behavioral", "experience", "role_specific", "leadership", "culture"],
+  technical: ["technical", "coding", "system_design", "experience", "role_specific"],
+  coding: ["coding", "technical", "experience"],
+  system_design: ["system_design", "technical", "experience"],
+  behavioral: ["behavioral", "culture", "leadership", "experience"],
+  culture_fit: ["culture", "behavioral", "logistics"],
+  panel: ["technical", "behavioral", "system_design", "leadership", "experience"],
+  final: ["behavioral", "logistics", "culture", "experience", "role_specific"],
+};
+
+let prepCategoriesCustomized = false;
+
 tabs.forEach((tab) => {
   tab.addEventListener("click", () => {
     tabs.forEach((item) => item.classList.remove("active"));
@@ -426,6 +523,197 @@ tabs.forEach((tab) => {
 
 loadSavedJobs();
 loadInterviewSteps();
+loadPrepCategories();
+wirePrepCategoryControls();
+
+function wirePrepCategoryControls() {
+  document.querySelectorAll(".prep-preset-card").forEach((button) => {
+    button.addEventListener("click", () => {
+      applyPrepCategoryPreset(button.dataset.preset);
+    });
+  });
+
+  const slider = document.getElementById("prep-question-count-slider");
+  const display = document.getElementById("prep-question-count-display");
+  const hiddenCount = document.getElementById("prep-question-count");
+  slider.addEventListener("input", () => {
+    display.textContent = slider.value;
+    hiddenCount.value = slider.value;
+  });
+
+  document.getElementById("prep-apply-step-suggestion").addEventListener("click", () => {
+    const step = document.getElementById("prep-interview-step").value;
+    const suggested = STEP_CATEGORY_SUGGESTIONS[step];
+    if (!suggested) {
+      return;
+    }
+    setSelectedPrepCategories(suggested);
+    prepCategoriesCustomized = true;
+    updatePrepPresetButtons();
+    hideStepCategorySuggestion();
+  });
+
+  document.getElementById("prep-interview-step").addEventListener("change", () => {
+    updateStepCategorySuggestion();
+    if (!prepCategoriesCustomized) {
+      const step = document.getElementById("prep-interview-step").value;
+      const suggested = STEP_CATEGORY_SUGGESTIONS[step];
+      if (suggested) {
+        setSelectedPrepCategories(suggested);
+        updatePrepPresetButtons();
+      }
+    }
+  });
+}
+
+async function loadPrepCategories() {
+  try {
+    const response = await fetch("/prep/categories");
+    if (!response.ok) {
+      return;
+    }
+
+    const categories = await response.json();
+    const byValue = new Map(categories.map((category) => [category.value, category]));
+    const container = document.getElementById("prep-category-list");
+    container.innerHTML = "";
+    prepCategoryValues.length = 0;
+
+    for (const category of categories) {
+      prepCategoryLabels[category.value] = category.label;
+      prepCategoryValues.push(category.value);
+    }
+
+    for (const group of PREP_CATEGORY_GROUPS) {
+      const groupValues = group.values.filter((value) => byValue.has(value));
+      if (groupValues.length === 0) {
+        continue;
+      }
+
+      const groupEl = document.createElement("div");
+      groupEl.className = "category-group";
+      groupEl.innerHTML = `<p class="category-group-label">${escapeHtml(group.label)}</p>`;
+
+      const row = document.createElement("div");
+      row.className = "category-chip-row";
+
+      for (const value of groupValues) {
+        const category = byValue.get(value);
+        const label = document.createElement("label");
+        label.className = "category-chip is-selected";
+        label.dataset.category = value;
+        label.innerHTML = `
+          <input
+            type="checkbox"
+            name="question_categories"
+            value="${escapeHtml(value)}"
+            checked
+          >
+          <span>${escapeHtml(category.label)}</span>
+        `;
+
+        const checkbox = label.querySelector("input");
+        checkbox.addEventListener("change", () => {
+          label.classList.toggle("is-selected", checkbox.checked);
+          prepCategoriesCustomized = true;
+          updatePrepCategoryCount();
+          updatePrepPresetButtons();
+          updateStepCategorySuggestion();
+        });
+
+        row.appendChild(label);
+      }
+
+      groupEl.appendChild(row);
+      container.appendChild(groupEl);
+    }
+
+    updatePrepCategoryCount();
+    updatePrepPresetButtons();
+    updateStepCategorySuggestion();
+  } catch {
+    // Ignore category list failures in the UI.
+  }
+}
+
+function getPrepCategoryCheckboxes() {
+  return Array.from(document.querySelectorAll('#prep-category-list input[name="question_categories"]'));
+}
+
+function setSelectedPrepCategories(values) {
+  const allowed = new Set(values);
+  getPrepCategoryCheckboxes().forEach((checkbox) => {
+    checkbox.checked = allowed.has(checkbox.value);
+    checkbox.closest(".category-chip")?.classList.toggle("is-selected", checkbox.checked);
+  });
+  updatePrepCategoryCount();
+}
+
+function applyPrepCategoryPreset(presetKey) {
+  const preset = PREP_CATEGORY_PRESETS[presetKey];
+  if (!preset) {
+    return;
+  }
+
+  const values = typeof preset === "function" ? preset() : preset;
+  setSelectedPrepCategories(values);
+  prepCategoriesCustomized = presetKey !== "all";
+  updatePrepPresetButtons();
+  updateStepCategorySuggestion();
+}
+
+function updatePrepCategoryCount() {
+  const selected = getPrepCategoryCheckboxes().filter((checkbox) => checkbox.checked).length;
+  const total = prepCategoryValues.length;
+  const counter = document.getElementById("prep-category-count");
+  counter.textContent = `${selected} of ${total} selected`;
+  counter.classList.toggle("is-empty", selected === 0);
+}
+
+function updatePrepPresetButtons() {
+  const selected = new Set(
+    getPrepCategoryCheckboxes()
+      .filter((checkbox) => checkbox.checked)
+      .map((checkbox) => checkbox.value)
+  );
+
+  document.querySelectorAll(".prep-preset-card").forEach((button) => {
+    const presetKey = button.dataset.preset;
+    const preset = PREP_CATEGORY_PRESETS[presetKey];
+    const values = typeof preset === "function" ? preset() : preset || [];
+    const matches =
+      values.length === selected.size && values.every((value) => selected.has(value));
+    button.classList.toggle("is-active", matches);
+  });
+}
+
+function updateStepCategorySuggestion() {
+  const step = document.getElementById("prep-interview-step").value;
+  const suggestion = document.getElementById("prep-category-suggestion");
+  const suggested = STEP_CATEGORY_SUGGESTIONS[step];
+  if (!step || !suggested) {
+    suggestion.classList.add("hidden");
+    return;
+  }
+
+  const selected = new Set(
+    getPrepCategoryCheckboxes()
+      .filter((checkbox) => checkbox.checked)
+      .map((checkbox) => checkbox.value)
+  );
+  const alreadyMatches =
+    suggested.length === selected.size && suggested.every((value) => selected.has(value));
+
+  suggestion.classList.toggle("hidden", alreadyMatches);
+}
+
+function hideStepCategorySuggestion() {
+  document.getElementById("prep-category-suggestion").classList.add("hidden");
+}
+
+function formatPrepCategory(category) {
+  return prepCategoryLabels[category] || String(category).replaceAll("_", " ");
+}
 
 async function loadInterviewSteps() {
   try {
@@ -473,12 +761,21 @@ prepForm.addEventListener("submit", async (event) => {
   setPrepLoading(true);
 
   const formData = new FormData(prepForm);
+  const selectedCategories = formData.getAll("question_categories");
+  if (selectedCategories.length === 0) {
+    showPrepError("Select at least one question type.");
+    setPrepLoading(false);
+    return;
+  }
+
   const payload = {
     role_title: formData.get("role_title"),
     role_description: formData.get("role_description"),
     interview_step: formData.get("interview_step"),
     company: formData.get("company") || null,
     save_job_description: formData.get("save_job_description") === "on",
+    question_count: Number(formData.get("question_count") || 10),
+    question_categories: selectedCategories,
   };
 
   const jobId = formData.get("job_id");
@@ -550,8 +847,20 @@ function renderPrepResults(result) {
   document.getElementById("prep-bank-sample").textContent =
     bankTotal > 0 ? `${bankSample} / ${bankTotal}` : String(bankSample);
   document.getElementById("prep-summary").textContent = result.prep_summary;
+  const requested = result.requested_question_count ?? result.predicted_questions.length;
+  const returned = result.predicted_questions.length;
+  const available = result.available_bank_questions ?? returned;
+  const shortfall = document.getElementById("prep-shortfall-notice");
+  if (returned < requested) {
+    shortfall.textContent =
+      `Showing ${returned} of ${requested} requested questions — only ${available} unique question(s) exist in your saved bank for this round. Analyze more recordings to add questions; we do not invent new ones from the job description.`;
+    shortfall.classList.remove("hidden");
+  } else {
+    shortfall.textContent = "";
+    shortfall.classList.add("hidden");
+  }
   document.getElementById("prep-step-label").textContent =
-    `Preparing for: ${formatStepLabel(result.interview_step)}`;
+    `Preparing for · ${formatStepLabel(result.interview_step)}`;
   renderChips("prep-focus-areas", result.focus_areas);
 
   const container = document.getElementById("prep-question-list");
@@ -559,27 +868,31 @@ function renderPrepResults(result) {
 
   result.predicted_questions.forEach((item, index) => {
     const article = document.createElement("article");
-    article.className = "qa-item";
+    article.className = "prep-question-card";
+    article.dataset.category = item.category || "other";
     article.innerHTML = `
-      <div class="qa-top">
-        <h3 class="qa-question">Q${index + 1}. ${escapeHtml(item.question)}</h3>
-        <span class="score-pill">${escapeHtml(item.category)}</span>
-      </div>
-      <p class="qa-meta">
-        Source: ${escapeHtml(item.source.replaceAll("_", " "))}
-        ${item.based_on_role ? ` · Based on: ${escapeHtml(item.based_on_role)}` : ""}
-      </p>
-      <div class="qa-block">
-        <h3>Why this question is likely</h3>
-        <p class="qa-answer">${escapeHtml(item.why_likely)}</p>
-      </div>
-      <div class="qa-block qa-block-ideal">
-        <h3>Strong answer outline</h3>
-        <p class="qa-ideal-answer">${escapeHtml(item.strong_answer_outline || "No outline generated.")}</p>
-      </div>
-      <div class="qa-columns">
+      <header class="prep-question-head">
+        <span class="prep-question-index">${String(index + 1).padStart(2, "0")}</span>
         <div>
-          <h3>Preparation tips</h3>
+          <span class="prep-question-category">${escapeHtml(formatPrepCategory(item.category))}</span>
+          <h3 class="prep-question-title">${escapeHtml(item.question)}</h3>
+        </div>
+      </header>
+      <p class="prep-question-meta">
+        ${escapeHtml(item.source.replaceAll("_", " "))}
+        ${item.based_on_role ? ` · Drawn from ${escapeHtml(item.based_on_role)}` : ""}
+      </p>
+      <div class="prep-question-body">
+        <div class="prep-question-block">
+          <h4>Why this is likely</h4>
+          <p>${escapeHtml(item.why_likely)}</p>
+        </div>
+        <div class="prep-question-block is-highlight">
+          <h4>Strong answer outline</h4>
+          <p>${escapeHtml(item.strong_answer_outline || "No outline generated.")}</p>
+        </div>
+        <div class="prep-question-block">
+          <h4>Preparation tips</h4>
           <ul>${renderListItems(item.preparation_tips)}</ul>
         </div>
       </div>
@@ -607,7 +920,9 @@ function hidePrepResults() {
 
 function setPrepLoading(isLoading) {
   prepSubmitBtn.disabled = isLoading;
-  prepSubmitBtn.textContent = isLoading ? "Preparing..." : "Get possible questions";
+  prepSubmitBtn.querySelector(".prep-submit-label").textContent = isLoading
+    ? "Generating practice questions..."
+    : "Generate practice questions";
 }
 
 function formatStepLabel(step) {

@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Optional
 
 from app.config import settings
+from app.db.question_bank import question_bank_store
 from app.models import InterviewAnalysisRequest, InterviewAnalysisResult
 from app.services.google_drive import GoogleDriveStorage, GoogleDriveStorageError
 from app.services.recording_key import normalize_recording_url, recording_storage_key
@@ -106,6 +107,19 @@ class ResultStore:
 
         result.storage_source = ",".join(locations)
         logger.info("Saved analysis for %s to %s", key, ", ".join(locations))
+
+        try:
+            question_bank_store.upsert_analysis(
+                request,
+                result,
+                recording_key=key,
+                normalized_recording_id=normalize_recording_url(str(request.recording_url)),
+            )
+            locations.append("postgres")
+            result.storage_source = ",".join(locations)
+        except Exception:
+            logger.exception("PostgreSQL save failed for %s (JSON backup retained)", key)
+
         return locations
 
     def _filename(self, key: str) -> str:
@@ -145,6 +159,17 @@ class ResultStore:
         path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
     def list_all_saved(self) -> list[dict]:
+        if question_bank_store.is_enabled():
+            try:
+                payloads = question_bank_store.list_saved_payloads()
+                if payloads:
+                    return payloads
+            except Exception:
+                logger.exception("PostgreSQL list failed; falling back to JSON files")
+
+        return self._list_all_saved_json()
+
+    def _list_all_saved_json(self) -> list[dict]:
         payloads: list[dict] = []
         seen_keys: set[str] = set()
 

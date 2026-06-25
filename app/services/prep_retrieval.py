@@ -71,10 +71,13 @@ class PrepBankSelection:
     matching_questions_for_prompt: list[dict]
     other_questions_for_prompt: list[dict]
     matching_topics: list[str]
+    ranked_bank_questions: list[dict] = field(default_factory=list)
 
     @property
     def unique_past_questions_used(self) -> int:
-        return len(self.matching_questions_for_prompt) + len(self.other_questions_for_prompt)
+        return len(self.ranked_bank_questions) or (
+            len(self.matching_questions_for_prompt) + len(self.other_questions_for_prompt)
+        )
 
 
 def normalize_question(text: str) -> str:
@@ -152,6 +155,7 @@ def build_prep_bank_selection(
         relevance_text,
         settings.prep_max_other_questions,
     )
+    ranked_bank_questions = _build_ranked_bank_pool(matching_agg, other_agg, relevance_text)
     matching_topics = [
         topic
         for topic, _count in sorted(topic_counts.items(), key=lambda item: item[1], reverse=True)[
@@ -169,6 +173,7 @@ def build_prep_bank_selection(
         matching_questions_for_prompt=matching_questions_for_prompt,
         other_questions_for_prompt=other_questions_for_prompt,
         matching_topics=matching_topics,
+        ranked_bank_questions=ranked_bank_questions,
     )
 
     logger.info(
@@ -178,6 +183,53 @@ def build_prep_bank_selection(
         selection.unique_past_questions_used,
     )
     return selection
+
+
+def _build_ranked_bank_pool(
+    matching_agg: dict[str, AggregatedQuestion],
+    other_agg: dict[str, AggregatedQuestion],
+    relevance_text: str,
+) -> list[dict]:
+    """Same-step questions first, then other steps, deduplicated."""
+    seen: set[str] = set()
+    pool: list[dict] = []
+    for aggregated in (matching_agg, other_agg):
+        for item in _rank_and_limit(aggregated, relevance_text, limit=10_000):
+            key = normalize_question(item["question"])
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            pool.append(item)
+    return pool
+
+
+def canonical_bank_question(question: str, pool: list[dict]) -> str | None:
+    for item in pool:
+        bank_question = str(item.get("question", "")).strip()
+        if bank_question and questions_are_similar(question, bank_question):
+            return bank_question
+    return None
+
+
+def restrict_to_bank_questions(questions: list, pool: list[dict]) -> list:
+    """Keep only predictions that match a saved bank question (exact canonical text)."""
+    kept = []
+    for item in questions:
+        question = str(getattr(item, "question", "")).strip()
+        if not question:
+            continue
+        canonical = canonical_bank_question(question, pool)
+        if not canonical:
+            continue
+        if hasattr(item, "model_copy"):
+            item = item.model_copy(
+                update={
+                    "question": canonical,
+                    "source": "past_interview",
+                }
+            )
+        kept.append(item)
+    return dedupe_predicted_questions(kept)
 
 
 def _rank_and_limit(

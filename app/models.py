@@ -4,6 +4,7 @@ from typing import Literal, Optional
 from pydantic import BaseModel, Field, HttpUrl, field_validator
 
 from app.interview_steps import InterviewStep
+from app.prep_categories import PrepQuestionCategory, default_prep_categories, normalize_prep_category
 
 
 class AnswerQuality(str, Enum):
@@ -106,6 +107,16 @@ class InterviewAnalysisResult(BaseModel):
     )
 
 
+class RegenerateIdealAnswerRequest(BaseModel):
+    recording_url: HttpUrl = Field(..., description="Recording URL for the saved analysis")
+    question_index: int = Field(..., ge=0, description="0-based index of the question in qa_pairs")
+
+
+class RegenerateIdealAnswerResponse(BaseModel):
+    question_index: int
+    qa_pair: QuestionAnswerPair
+
+
 class AnalysisJobStatus(str, Enum):
     PENDING = "pending"
     DOWNLOADING = "downloading"
@@ -194,16 +205,32 @@ class InterviewPrepRequest(BaseModel):
         True,
         description="Save this job description for future prep sessions",
     )
+    question_count: int = Field(
+        10,
+        ge=4,
+        le=25,
+        description="How many predicted questions to return",
+    )
+    question_categories: list[PrepQuestionCategory] = Field(
+        default_factory=default_prep_categories,
+        min_length=1,
+        description="Question types to include, e.g. technical, behavioral, logistics",
+    )
 
 
 class PredictedQuestion(BaseModel):
     question: str
-    category: str = Field(..., description="e.g. technical, behavioral, system_design, role_specific")
+    category: PrepQuestionCategory
     why_likely: str
     source: Literal["past_interview", "job_description", "both"] = "both"
     based_on_role: Optional[str] = None
     preparation_tips: list[str] = Field(default_factory=list)
     strong_answer_outline: str = ""
+
+    @field_validator("category", mode="before")
+    @classmethod
+    def coerce_category(cls, value) -> PrepQuestionCategory:
+        return normalize_prep_category(value)
 
 
 class InterviewPrepResult(BaseModel):
@@ -218,7 +245,13 @@ class InterviewPrepResult(BaseModel):
         0,
         description="Unique deduplicated past questions sent to the prediction model",
     )
+    available_bank_questions: int = Field(
+        0,
+        description="Total unique questions available in the saved bank for this prep session",
+    )
     prep_summary: str
     predicted_questions: list[PredictedQuestion]
     focus_areas: list[str] = Field(default_factory=list)
     saved_job_id: Optional[str] = None
+    requested_question_count: int = 10
+    requested_categories: list[PrepQuestionCategory] = Field(default_factory=default_prep_categories)

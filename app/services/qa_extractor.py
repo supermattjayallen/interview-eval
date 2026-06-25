@@ -56,6 +56,15 @@ Rules:
 - Return valid JSON only"""
 
 
+IDEAL_ANSWER_SYSTEM_PROMPT = """You write a stronger interview answer a candidate could give.
+
+Rules:
+- Write a complete, spoken-style response (2-6 paragraphs when needed)
+- Directly address the question and cover important points the candidate missed
+- Do not score, critique, or summarize — only produce the improved answer
+- Return valid JSON only"""
+
+
 class ExtractedQA(TypedDict):
     question: str
     question_timestamp: str | None
@@ -255,6 +264,69 @@ Return JSON:
         return merged
     except (json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
         raise QAEvaluationError(f"Failed to parse Q&A evaluation: {exc}") from exc
+
+
+def regenerate_ideal_answer_for_pair(
+    request: InterviewAnalysisRequest,
+    *,
+    question: str,
+    answer: str,
+    strengths: list[str] | None = None,
+    gaps: list[str] | None = None,
+) -> dict[str, str | list[str]]:
+    """Regenerate only the better answer and key points for one Q&A pair."""
+    client = OpenAI(api_key=settings.openai_api_key)
+
+    context_parts = []
+    if request.role_title:
+        context_parts.append(f"Role title: {request.role_title}")
+    if request.role_description:
+        context_parts.append(f"Role description: {request.role_description}")
+
+    pair_payload = {
+        "question": question,
+        "answer": answer,
+        "strengths": strengths or [],
+        "gaps": gaps or [],
+    }
+
+    user_prompt = f"""Write a better interview answer for this question-and-answer pair.
+
+{chr(10).join(context_parts) if context_parts else "No extra role context provided."}
+
+Pair:
+{json.dumps(pair_payload, indent=2)}
+
+Return JSON:
+{{
+  "ideal_answer": "A complete better answer the candidate could give, written in full sentences",
+  "ideal_answer_points": ["key point 1", "key point 2"]
+}}"""
+
+    response = client.chat.completions.create(
+        model=settings.openai_model,
+        messages=[
+            {"role": "system", "content": IDEAL_ANSWER_SYSTEM_PROMPT},
+            {"role": "user", "content": user_prompt},
+        ],
+        response_format={"type": "json_object"},
+        temperature=0.3,
+    )
+
+    content = response.choices[0].message.content
+    if not content:
+        raise QAEvaluationError("Ideal answer regeneration returned empty response")
+
+    try:
+        data = json.loads(content)
+        return {
+            "ideal_answer": str(data.get("ideal_answer", "")).strip(),
+            "ideal_answer_points": [
+                str(point).strip() for point in data.get("ideal_answer_points", []) if str(point).strip()
+            ],
+        }
+    except (json.JSONDecodeError, TypeError, ValueError) as exc:
+        raise QAEvaluationError(f"Failed to parse regenerated ideal answer: {exc}") from exc
 
 
 def _split_transcript(transcript: str, max_chars: int = 28000) -> list[str]:

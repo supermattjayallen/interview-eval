@@ -83,6 +83,51 @@ No local setup required.
 
 All analyses and job descriptions are stored on the server (`data/` volume). Everyone benefits from the same question bank for interview prep.
 
+When PostgreSQL is enabled (see below), interview questions and sample answers are also stored in the database for faster prep at scale. JSON files in `data/results/` remain the backup export format.
+
+### PostgreSQL question bank (optional)
+
+For a scalable question bank (millions of questions), run PostgreSQL via Docker and backfill from existing saved analyses.
+
+**Docker Compose (app + Postgres):**
+
+```bash
+docker compose up -d --build
+```
+
+The app container gets `DATABASE_URL` automatically. Schema is created on startup.
+
+**Local Python + Docker Postgres only** (e.g. Windows VPS without Docker for the app):
+
+```powershell
+.\scripts\start-postgres.ps1
+```
+
+**Windows Server VPS without Docker** (recommended on Server 2019 — no Hyper-V reboot):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\install-postgres-native.ps1
+```
+
+Add to `.env`:
+
+```bash
+DATABASE_URL=postgresql+psycopg2://interview_eval:interview_eval@localhost:5432/interview_eval
+```
+
+Install dependencies and backfill from `data/results/*.json`:
+
+```bash
+pip install -r requirements.txt
+python scripts/backfill_postgres.py
+```
+
+New analyses are dual-written to JSON and PostgreSQL when `DATABASE_URL` is set. Prep reads from Postgres when available, otherwise falls back to JSON files.
+
+**Schema:** `recordings` (interview metadata), `questions` (Q&A, scores), `sample_answers` (ideal answers / points).
+
+Check `/health` for `postgres: ok` and `postgres_recordings` count.
+
 ### 4. Security notes
 
 - Keep `OPENAI_API_KEY` only on the server — never share it with teammates
@@ -206,10 +251,10 @@ Use the **Prepare for interview** tab to generate likely questions before you jo
 5. Click **Get possible questions**
 
 The service will:
-- Load questions from previously saved interview analyses **for the same step**
-- Use other steps only as secondary context
-- Predict step-appropriate questions from the job description
-- Provide preparation tips and strong answer outlines
+- Select practice questions **only** from your saved interview analyses (same step first, then other steps as secondary context)
+- Use the job description to **rank** which bank questions are most relevant — not to invent new questions
+- Return **fewer than requested** if the bank does not have enough unique questions (analyze more recordings to grow the bank)
+- Provide preparation tips and strong answer outlines for each selected question
 
 Saved job descriptions are stored in `data/jobs/`.
 

@@ -4,7 +4,10 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Interview Evaluation</title>
-  <link rel="stylesheet" href="/static/styles.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/styles.css?v=7">
 </head>
 <body>
   <div class="page">
@@ -176,94 +179,201 @@
       </section>
 
       <section id="prepare-panel" class="tab-panel">
-        <section class="card form-card">
-          <form id="prep-form">
-            <label class="field-label" for="saved-job">Saved job description</label>
-            <select id="saved-job" name="job_id">
-              <option value="">New job description</option>
-            </select>
+        <div class="prep-hero card">
+          <div class="prep-hero-copy">
+            <p class="prep-hero-eyebrow">Interview prep</p>
+            <h2 class="prep-hero-title">Practice the questions you’re most likely to get</h2>
+            <p class="prep-hero-text">
+              We use your saved interview history to surface real questions from past rounds. The job description helps rank relevance but does not invent new questions.
+            </p>
+          </div>
+        </div>
 
-            <div class="advanced-grid">
-              <div class="field">
-                <label for="prep-interview-step">Interview step you are preparing for</label>
-                <select id="prep-interview-step" name="interview_step" required>
-                  <option value="">Select interview step</option>
-                </select>
+        <section class="card form-card prep-form-card">
+          <form id="prep-form" class="prep-form">
+            <section class="prep-block">
+              <header class="prep-block-head">
+                <span class="prep-block-num" aria-hidden="true">1</span>
+                <div>
+                  <h3 class="prep-block-title">Interview &amp; role</h3>
+                  <p class="prep-block-lead">Start with the round you’re preparing for and the target role.</p>
+                </div>
+              </header>
+
+              <div class="prep-grid">
+                <div class="field span-2">
+                  <label for="saved-job">Saved job description</label>
+                  <select id="saved-job" name="job_id" class="prep-input">
+                    <option value="">New job description</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label for="prep-interview-step">Interview step</label>
+                  <select id="prep-interview-step" name="interview_step" class="prep-input" required>
+                    <option value="">Select interview step</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label for="prep-role-title">Role title</label>
+                  <input id="prep-role-title" name="role_title" class="prep-input" type="text" required placeholder="Senior Backend Engineer">
+                </div>
+                <div class="field">
+                  <label for="prep-company">Company</label>
+                  <input id="prep-company" name="company" class="prep-input" type="text" placeholder="Acme Corp">
+                </div>
               </div>
-              <div class="field">
-                <label for="prep-role-title">Role title</label>
-                <input id="prep-role-title" name="role_title" type="text" required placeholder="Senior Backend Engineer">
+            </section>
+
+            <section class="prep-block">
+              <header class="prep-block-head">
+                <span class="prep-block-num" aria-hidden="true">2</span>
+                <div>
+                  <h3 class="prep-block-title">Question focus</h3>
+                  <p class="prep-block-lead">Choose a quick preset or tap individual topics below.</p>
+                </div>
+              </header>
+
+              <div class="question-count-control">
+                <div class="question-count-top">
+                  <label class="question-count-label" for="prep-question-count-slider">Number of questions</label>
+                  <output id="prep-question-count-display" class="question-count-badge" for="prep-question-count-slider">10</output>
+                </div>
+                <input
+                  id="prep-question-count-slider"
+                  class="question-count-slider"
+                  type="range"
+                  min="4"
+                  max="25"
+                  value="10"
+                  step="1"
+                >
+                <div class="question-count-ticks" aria-hidden="true">
+                  <span>4</span><span>10</span><span>15</span><span>20</span><span>25</span>
+                </div>
+                <input id="prep-question-count" name="question_count" type="hidden" value="10">
               </div>
-              <div class="field">
-                <label for="prep-company">Company</label>
-                <input id="prep-company" name="company" type="text" placeholder="Acme Corp">
+
+              <div class="prep-preset-grid" role="group" aria-label="Question focus presets">
+                <button type="button" class="prep-preset-card" data-preset="all">
+                  <span class="prep-preset-icon" aria-hidden="true">◎</span>
+                  <span class="prep-preset-name">Everything</span>
+                  <span class="prep-preset-desc">All question types</span>
+                </button>
+                <button type="button" class="prep-preset-card" data-preset="technical">
+                  <span class="prep-preset-icon" aria-hidden="true">⌁</span>
+                  <span class="prep-preset-name">Technical</span>
+                  <span class="prep-preset-desc">Skills, coding, design</span>
+                </button>
+                <button type="button" class="prep-preset-card" data-preset="behavioral">
+                  <span class="prep-preset-icon" aria-hidden="true">✦</span>
+                  <span class="prep-preset-name">Behavioral</span>
+                  <span class="prep-preset-desc">Stories, culture, leadership</span>
+                </button>
+                <button type="button" class="prep-preset-card" data-preset="recruiter">
+                  <span class="prep-preset-icon" aria-hidden="true">◈</span>
+                  <span class="prep-preset-name">Recruiter</span>
+                  <span class="prep-preset-desc">Screening &amp; logistics</span>
+                </button>
               </div>
-              <div class="field full-width">
-                <label for="prep-role-description">Job description</label>
+
+              <div class="category-panel">
+                <div class="category-panel-top">
+                  <div>
+                    <p class="category-panel-title" id="prep-category-label">Topics to include</p>
+                    <p class="category-panel-hint">Tap to toggle. Selected topics are highlighted.</p>
+                  </div>
+                  <span id="prep-category-count" class="category-count" aria-live="polite">0 selected</span>
+                </div>
+
+                <p id="prep-category-suggestion" class="category-suggestion hidden">
+                  <button type="button" id="prep-apply-step-suggestion" class="link-btn">
+                    Use topics recommended for this interview step
+                  </button>
+                </p>
+
+                <div id="prep-category-list" class="category-groups" role="group" aria-labelledby="prep-category-label"></div>
+              </div>
+            </section>
+
+            <section class="prep-block">
+              <header class="prep-block-head">
+                <span class="prep-block-num" aria-hidden="true">3</span>
+                <div>
+                  <h3 class="prep-block-title">Job description</h3>
+                  <p class="prep-block-lead">Paste the posting so we can tailor role-specific questions.</p>
+                </div>
+              </header>
+
+              <div class="field">
+                <label class="sr-only" for="prep-role-description">Job description</label>
                 <textarea
                   id="prep-role-description"
                   name="role_description"
-                  rows="8"
+                  class="prep-input prep-textarea"
+                  rows="7"
                   required
-                  placeholder="Paste the job description: responsibilities, required skills, seniority, tech stack..."
+                  placeholder="Paste responsibilities, required skills, seniority, tech stack, and anything else from the job posting..."
                 ></textarea>
               </div>
-              <div class="field full-width">
-                <label class="checkbox-row">
-                  <input id="save-job-description" name="save_job_description" type="checkbox" checked>
-                  Save this job description for next time
-                </label>
-              </div>
-            </div>
 
-            <button id="prep-submit-btn" type="submit">Get possible questions</button>
+              <label class="prep-save-toggle">
+                <input id="save-job-description" name="save_job_description" type="checkbox" checked>
+                <span class="prep-save-toggle-box" aria-hidden="true"></span>
+                <span>Save this job description for next time</span>
+              </label>
+            </section>
+
+            <button id="prep-submit-btn" class="prep-submit-btn" type="submit">
+              <span class="prep-submit-label">Generate practice questions</span>
+            </button>
           </form>
 
           <div id="prep-error-panel" class="error-panel hidden" role="alert"></div>
         </section>
 
-        <section id="prep-results" class="results hidden">
+        <section id="prep-results" class="results prep-results hidden">
           <nav class="results-nav" aria-label="Jump to section">
             <a href="#prep-summary-section">Summary</a>
             <a href="#prep-questions-section">Questions</a>
           </nav>
-          <div id="prep-summary-section" class="summary-grid">
-            <article class="summary-card">
+          <div id="prep-shortfall-notice" class="prep-shortfall hidden" role="status"></div>
+          <div id="prep-summary-section" class="summary-grid prep-summary-grid">
+            <article class="summary-card prep-stat-card">
               <p class="summary-label">Predicted questions</p>
               <p id="prep-total-questions" class="summary-value">-</p>
             </article>
-            <article class="summary-card">
-              <p class="summary-label">Same-step interviews used</p>
+            <article class="summary-card prep-stat-card">
+              <p class="summary-label">Same-step interviews</p>
               <p id="prep-matching-interviews" class="summary-value">-</p>
             </article>
-            <article class="summary-card">
-              <p class="summary-label">Past questions sampled</p>
+            <article class="summary-card prep-stat-card">
+              <p class="summary-label">Past questions used</p>
               <p id="prep-bank-sample" class="summary-value">-</p>
             </article>
-            <article class="summary-card wide">
+            <article class="summary-card wide prep-summary-wide">
               <p class="summary-label">Preparation summary</p>
               <p id="prep-summary" class="summary-text">-</p>
             </article>
           </div>
 
-          <article class="card">
-            <p id="prep-step-label" class="body-text"></p>
+          <article class="card prep-focus-card">
+            <p id="prep-step-label" class="prep-round-label"></p>
             <h2>Focus areas</h2>
-            <div id="prep-focus-areas" class="chips"></div>
+            <div id="prep-focus-areas" class="chips prep-focus-chips"></div>
           </article>
 
-          <section id="prep-questions-section" class="card">
+          <section id="prep-questions-section" class="card prep-questions-card">
             <div class="section-heading">
               <h2>Likely interview questions</h2>
-              <p class="section-note">Based on a deduplicated sample of your saved question bank and your job description.</p>
+              <p class="section-note">Real questions from your saved interviews, ranked for this round.</p>
             </div>
-            <div id="prep-question-list" class="qa-list"></div>
+            <div id="prep-question-list" class="prep-question-list"></div>
           </section>
         </section>
       </section>
     </main>
   </div>
 
-  <script src="/static/app.js?v=3"></script>
+  <script src="/static/app.js?v=7"></script>
 </body>
 </html>

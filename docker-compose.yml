@@ -1,4 +1,21 @@
 services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: interview_eval
+      POSTGRES_PASSWORD: interview_eval
+      POSTGRES_DB: interview_eval
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U interview_eval -d interview_eval"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
   interview-eval:
     build: .
     restart: unless-stopped
@@ -10,10 +27,15 @@ services:
       TEMP_DIR: /app/tmp
       RESULTS_DIR: /app/data/results
       JOBS_DIR: /app/data/jobs
+      DATABASE_URL: postgresql+psycopg2://interview_eval:interview_eval@postgres:5432/interview_eval
     volumes:
       - interview-data:/app/data
       - interview-tmp:/app/tmp
+    depends_on:
+      postgres:
+        condition: service_healthy
 
 volumes:
   interview-data:
   interview-tmp:
+  postgres-data:

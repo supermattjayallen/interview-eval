@@ -1,4 +1,5 @@
 import logging
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
@@ -7,7 +8,10 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.auth import TeamBasicAuthMiddleware, team_auth_enabled
+from app.db import database_enabled, init_database
+from app.db.question_bank import question_bank_store
 from app.interview_steps import INTERVIEW_STEP_LABELS, InterviewStep
+from app.prep_categories import PREP_CATEGORY_LABELS, PrepQuestionCategory
 from app.models import (
     AnalysisJobResponse,
     BatchAnalysisRequest,
@@ -16,21 +20,32 @@ from app.models import (
     InterviewAnalysisResult,
     InterviewPrepRequest,
     InterviewPrepResult,
+    RegenerateIdealAnswerRequest,
+    RegenerateIdealAnswerResponse,
     SaveJobDescriptionRequest,
     SavedJobDescription,
 )
 from app.services.interview_prep import InterviewPrepError, prepare_for_interview
 from app.services.job_store import job_store
+from app.services.analyzer import AnalysisError, regenerate_ideal_answer
 from app.services.pipeline import get_batch, get_job, run_analysis_sync, start_analysis, start_batch_analysis
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    init_database()
+    yield
+
+
 app = FastAPI(
     title="Interview Evaluation Service",
     description="Extract interview questions, evaluate candidate answers, and provide actionable feedback from recording links.",
     version="0.1.0",
+    lifespan=lifespan,
 )
 
 app.add_middleware(
@@ -54,8 +69,16 @@ def ui() -> FileResponse:
 
 
 @app.get("/health")
-def health() -> dict[str, str]:
-    return {"status": "ok"}
+def health() -> dict[str, str | int]:
+    status: dict[str, str | int] = {"status": "ok"}
+    if database_enabled():
+        try:
+            status["postgres_recordings"] = question_bank_store.count_recordings()
+            status["postgres"] = "ok"
+        except Exception as exc:
+            status["postgres"] = "error"
+            status["postgres_error"] = str(exc)
+    return status
 
 
 @app.get("/interview-steps")
@@ -63,6 +86,14 @@ def list_interview_steps() -> list[dict[str, str]]:
     return [
         {"value": step.value, "label": INTERVIEW_STEP_LABELS[step]}
         for step in InterviewStep
+    ]
+
+
+@app.get("/prep/categories")
+def list_prep_categories() -> list[dict[str, str]]:
+    return [
+        {"value": category.value, "label": PREP_CATEGORY_LABELS[category]}
+        for category in PrepQuestionCategory
     ]
 
 
@@ -107,6 +138,27 @@ def analyze_sync(request: InterviewAnalysisRequest) -> InterviewAnalysisResult:
         return run_analysis_sync(request)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.post("/analyze/regenerate-ideal-answer", response_model=RegenerateIdealAnswerResponse)
+def regenerate_ideal_answer_endpoint(
+    request: RegenerateIdealAnswerRequest,
+) -> RegenerateIdealAnswerResponse:
+    """Regenerate the better answer for one question without changing its score."""
+    try:
+        qa_pair = regenerate_ideal_answer(
+            recording_url=str(request.recording_url),
+            question_index=request.question_index,
+        )
+    except AnalysisError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    return RegenerateIdealAnswerResponse(
+        question_index=request.question_index,
+        qa_pair=qa_pair,
+    )
 
 
 @app.post("/jobs", response_model=SavedJobDescription)

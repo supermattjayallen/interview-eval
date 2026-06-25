@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     temp_dir: str = "./tmp"
     results_dir: str = "./data/results"
     jobs_dir: str = "./data/jobs"
+    database_url: str = ""
     prep_max_matching_questions: int = 120
     prep_max_other_questions: int = 30
     prep_max_topics: int = 20
