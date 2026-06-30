@@ -11,6 +11,7 @@ from app.db.models import Question, Recording, SampleAnswer
 from app.db.session import database_enabled, get_session
 from app.models import InterviewAnalysisRequest, InterviewAnalysisResult
 from app.services.prep_retrieval import normalize_question
+from app.services.recording_key import normalize_recording_url, recording_storage_key
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +36,7 @@ class QuestionBankStore:
         recording_key: str,
         normalized_recording_id: str,
         analyzed_at: datetime | None = None,
+        skip_prep_rebuild: bool = False,
     ) -> None:
         if not self.is_enabled():
             return
@@ -43,6 +45,7 @@ class QuestionBankStore:
         if analyzed_at.tzinfo is None:
             analyzed_at = analyzed_at.replace(tzinfo=timezone.utc)
 
+        saved_recording_id: int | None = None
         session = get_session()
         try:
             recording = session.scalar(
@@ -88,18 +91,19 @@ class QuestionBankStore:
 
                 ideal_answer = (qa.ideal_answer or "").strip()
                 ideal_points = list(qa.ideal_answer_points or [])
-                if ideal_answer or ideal_points:
+                if qa.ideal_answer_generated and (ideal_answer or ideal_points):
                     session.add(
                         SampleAnswer(
                             question_id=question.id,
                             ideal_answer=ideal_answer,
                             ideal_answer_points=ideal_points,
-                            source="analysis",
+                            source=qa.ideal_answer_source or "regenerated",
                             updated_at=analyzed_at,
                         )
                     )
 
             session.commit()
+            saved_recording_id = recording.id
             logger.info(
                 "Persisted %d questions for recording %s to PostgreSQL",
                 len(result.qa_pairs),
@@ -112,7 +116,18 @@ class QuestionBankStore:
         finally:
             session.close()
 
-    def upsert_from_payload(self, payload: dict) -> str | None:
+        if saved_recording_id and not skip_prep_rebuild:
+            try:
+                from app.db.prep_question_store import prep_question_store
+
+                prep_question_store.rebuild_after_recording(saved_recording_id)
+            except Exception:
+                logger.exception(
+                    "Prep catalog rebuild failed for recording %s (analysis saved)",
+                    recording_key,
+                )
+
+    def upsert_from_payload(self, payload: dict, *, skip_prep_rebuild: bool = False) -> str | None:
         request_data = payload.get("request") or {}
         result_data = payload.get("result") or {}
         recording_key = payload.get("recording_key")
@@ -133,6 +148,7 @@ class QuestionBankStore:
             recording_key=recording_key,
             normalized_recording_id=normalized_recording_id,
             analyzed_at=analyzed_at,
+            skip_prep_rebuild=skip_prep_rebuild,
         )
         return recording_key
 
@@ -220,6 +236,35 @@ class QuestionBankStore:
         finally:
             session.close()
 
+    def load_payload_by_url(self, recording_url: str) -> dict | None:
+        if not self.is_enabled():
+            return None
+
+        recording_key = recording_storage_key(recording_url)
+        normalized_id = normalize_recording_url(recording_url)
+        session = get_session()
+        try:
+            recording = session.scalar(
+                select(Recording)
+                .where(Recording.recording_key == recording_key)
+                .options(
+                    selectinload(Recording.questions).selectinload(Question.sample_answer),
+                )
+            )
+            if recording is None:
+                recording = session.scalar(
+                    select(Recording)
+                    .where(Recording.normalized_recording_id == normalized_id)
+                    .options(
+                        selectinload(Recording.questions).selectinload(Question.sample_answer),
+                    )
+                )
+            if recording is None:
+                return None
+            return _recording_to_payload(recording)
+        finally:
+            session.close()
+
     def backfill_from_directory(self, results_dir: str | Path) -> dict[str, int]:
         results_path = Path(results_dir)
         stats = {"files": 0, "imported": 0, "skipped": 0, "errors": 0}
@@ -228,7 +273,7 @@ class QuestionBankStore:
             stats["files"] += 1
             try:
                 payload = json.loads(path.read_text(encoding="utf-8"))
-                if self.upsert_from_payload(payload):
+                if self.upsert_from_payload(payload, skip_prep_rebuild=True):
                     stats["imported"] += 1
                 else:
                     stats["skipped"] += 1
@@ -241,27 +286,44 @@ class QuestionBankStore:
 
 def _recording_to_payload(recording: Recording) -> dict:
     qa_pairs = []
+    scored: list[int] = []
     for question in recording.questions:
         sample = question.sample_answer
+        include_ideal = sample is not None and bool(
+            (sample.ideal_answer or "").strip() or sample.ideal_answer_points
+        )
+        if question.score is not None:
+            scored.append(int(question.score))
         qa_pairs.append(
             {
                 "question": question.question_text,
                 "question_timestamp": question.question_timestamp,
                 "answer": question.candidate_answer,
                 "answer_timestamp": question.answer_timestamp,
-                "quality": question.quality,
-                "score": question.score,
+                "quality": question.quality or "not_answered",
+                "score": int(question.score or 0),
                 "strengths": list(question.strengths or []),
                 "gaps": list(question.gaps or []),
-                "ideal_answer": sample.ideal_answer if sample else "",
-                "ideal_answer_points": list(sample.ideal_answer_points or []) if sample else [],
+                "ideal_answer": sample.ideal_answer if include_ideal else "",
+                "ideal_answer_points": list(sample.ideal_answer_points or []) if include_ideal else [],
+                "ideal_answer_generated": include_ideal,
+                "ideal_answer_source": sample.source if include_ideal else None,
             }
         )
+
+    average_score = round(sum(scored) / len(scored), 1) if scored else 0.0
+    evaluation_skipped = bool(recording.evaluation_skipped)
+    recommendation = (
+        "Not evaluated — question bank mode."
+        if evaluation_skipped
+        else "Loaded from saved question bank."
+    )
 
     return {
         "recording_key": recording.recording_key,
         "normalized_recording_id": recording.normalized_recording_id,
-        "saved_at": recording.analyzed_at.isoformat(),
+        "recording_url": recording.recording_url,
+        "saved_at": recording.analyzed_at.isoformat() if recording.analyzed_at else None,
         "request": {
             "recording_url": recording.recording_url,
             "role_title": recording.role_title,
@@ -270,12 +332,21 @@ def _recording_to_payload(recording: Recording) -> dict:
         },
         "result": {
             "recording_url": recording.recording_url,
+            "role_title": recording.role_title,
             "interview_step": recording.interview_step,
             "interview_step_inferred": recording.interview_step_inferred,
-            "transcript_summary": recording.transcript_summary,
-            "evaluation_skipped": recording.evaluation_skipped,
+            "transcript_summary": recording.transcript_summary or "",
+            "total_questions": len(qa_pairs),
+            "average_score": average_score,
+            "evaluation_skipped": evaluation_skipped,
             "topics_covered": list(recording.topics_covered or []),
+            "red_flags": [],
+            "highlights": [],
             "qa_pairs": qa_pairs,
+            "feedback": {
+                "candidate_feedback": [],
+                "overall_recommendation": recommendation,
+            },
         },
     }
 

@@ -74,6 +74,14 @@ class ResultStore:
                 logger.warning("Google Drive load failed for %s: %s", key, exc)
 
         if not payload:
+            try:
+                payload = question_bank_store.load_payload_by_url(str(request.recording_url))
+                if payload:
+                    source = "postgres"
+            except Exception:
+                logger.exception("PostgreSQL load failed for %s", key)
+
+        if not payload:
             return None
 
         payload["_source"] = source

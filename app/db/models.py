@@ -93,3 +93,29 @@ class SampleAnswer(Base):
     )
 
     question: Mapped["Question"] = relationship(back_populates="sample_answer")
+
+
+class PrepQuestion(Base):
+    """Polished, prep-ready questions derived from raw transcript extractions."""
+
+    __tablename__ = "prep_questions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    question_normalized: Mapped[str] = mapped_column(String(1024), unique=True, nullable=False, index=True)
+    original_question: Mapped[str] = mapped_column(Text, nullable=False)
+    display_question: Mapped[str] = mapped_column(Text, nullable=False)
+    interview_step: Mapped[str | None] = mapped_column(String(64), index=True)
+    category: Mapped[str | None] = mapped_column(String(64), index=True)
+    times_seen: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    avg_score: Mapped[float | None] = mapped_column()
+    topics: Mapped[list] = mapped_column(JSONB, default=list, nullable=False)
+    interview_steps: Mapped[list] = mapped_column(JSONB, default=list, nullable=False)
+    why_likely: Mapped[str | None] = mapped_column(Text)
+    preparation_tips: Mapped[list] = mapped_column(JSONB, default=list, nullable=False)
+    strong_answer_outline: Mapped[str | None] = mapped_column(Text)
+    based_on_role: Mapped[str | None] = mapped_column(Text)
+    source_question_ids: Mapped[list] = mapped_column(JSONB, default=list, nullable=False)
+    polished_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (Index("ix_prep_questions_step_category", "interview_step", "category"),)

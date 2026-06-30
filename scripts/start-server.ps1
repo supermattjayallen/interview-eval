@@ -20,7 +20,6 @@ if ($envContent -notmatch 'OPENAI_API_KEY=sk-[A-Za-z0-9_-]{10,}') {
 
 New-Item -ItemType Directory -Force -Path (Join-Path $Root "tmp") | Out-Null
 New-Item -ItemType Directory -Force -Path (Join-Path $Root "data\results") | Out-Null
-New-Item -ItemType Directory -Force -Path (Join-Path $Root "data\jobs") | Out-Null
 
 $FfmpegBin = Join-Path $Root "tools\ffmpeg\bin"
 if (Test-Path (Join-Path $FfmpegBin "ffmpeg.exe")) {

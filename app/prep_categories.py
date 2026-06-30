@@ -54,4 +54,8 @@ def normalize_prep_category(value: str | PrepQuestionCategory) -> PrepQuestionCa
 
 
 def default_prep_categories() -> list[PrepQuestionCategory]:
-    return list(PrepQuestionCategory)
+    return [
+        category
+        for category in PrepQuestionCategory
+        if category not in (PrepQuestionCategory.LOGISTICS, PrepQuestionCategory.OTHER)
+    ]

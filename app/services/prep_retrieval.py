@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 
 from app.config import settings
 from app.interview_steps import InterviewStep
-from app.services.qa_extractor import is_substantive_question
+from app.services.prep_question_filters import is_prep_worthy_question
 
 logger = logging.getLogger(__name__)
 
@@ -125,7 +125,7 @@ def build_prep_bank_selection(
 
         for qa in qa_pairs:
             question = str(qa.get("question", "")).strip()
-            if not question or not is_substantive_question(question):
+            if not question or not is_prep_worthy_question(question):
                 continue
 
             total_past_questions_in_bank += 1
@@ -203,6 +203,116 @@ def _build_ranked_bank_pool(
     return pool
 
 
+_TECH_FAMILIES: dict[str, tuple[str, ...]] = {
+    "azure": ("azure", "azurerm", "cosmos", "aks", "entra", "blob storage", "app service", "functions"),
+    "aws": ("aws", "amazon web services", "ec2", "s3", "lambda", "dynamodb", "ecs", "eks", "cloudwatch"),
+    "gcp": ("gcp", "google cloud", "bigquery", "gke", "cloud run"),
+    "dotnet": (".net", "dotnet", "c#", "csharp", "asp.net", "blazor", "entity framework"),
+    "java": ("java", "spring", "spring boot", "jvm", "maven", "gradle"),
+    "python": ("python", "django", "flask", "fastapi"),
+    "kubernetes": ("kubernetes", "k8s", "helm", "kubectl"),
+}
+
+
+def _mentioned_tech_families(text: str) -> set[str]:
+    lowered = text.lower()
+    found: set[str] = set()
+    for family, terms in _TECH_FAMILIES.items():
+        if any(term in lowered for term in terms):
+            found.add(family)
+    return found
+
+
+def _stack_alignment_score(question_blob: str, relevance_text: str) -> float:
+    """Boost aligned stacks and penalize clear mismatches (e.g. AWS question for Azure JD)."""
+    jd_families = _mentioned_tech_families(relevance_text)
+    if not jd_families:
+        return 0.0
+
+    question_families = _mentioned_tech_families(question_blob)
+    if not question_families:
+        return 0.0
+
+    shared = jd_families & question_families
+    if shared:
+        return 40.0 * len(shared)
+
+    return -70.0
+
+
+def _question_blob(question_text: str, topics: list[str] | set[str]) -> str:
+    topic_list = sorted(set(topics))
+    return f"{question_text} {' '.join(topic_list)}".strip()
+
+
+def compute_relevance_score(
+    question_text: str,
+    topics: list[str] | set[str],
+    relevance_text: str,
+    times_seen: int,
+) -> float:
+    item = AggregatedQuestion(question=question_text, times_seen=times_seen)
+    item.topics = set(topics)
+    return _rank_score(item, relevance_text)
+
+
+def select_bank_questions(pool: list[dict], limit: int) -> list[dict]:
+    """Return the top-ranked bank questions, up to limit."""
+    if limit <= 0:
+        return []
+    return list(pool[:limit])
+
+
+def select_diverse_ranked(
+    ranked: list[tuple[float, object]],
+    *,
+    limit: int,
+    question_text,
+    pool_multiplier: int = 3,
+    score_band: float = 25.0,
+) -> list[object]:
+    """Pick practice questions with score-aware randomness and near-duplicate avoidance."""
+    import random
+
+    if limit <= 0 or not ranked:
+        return []
+
+    top_score = ranked[0][0]
+    score_floor = top_score - score_band
+    pool_size = min(len(ranked), max(limit * pool_multiplier, limit))
+    pool = [item for score, item in ranked[:pool_size] if score >= score_floor]
+    random.shuffle(pool)
+
+    selected: list[object] = []
+    selected_texts: list[str] = []
+    for item in pool:
+        if len(selected) >= limit:
+            break
+        text = str(question_text(item) or "").strip()
+        if not text:
+            continue
+        if any(questions_are_similar(text, existing) for existing in selected_texts):
+            continue
+        selected.append(item)
+        selected_texts.append(text)
+
+    if len(selected) < limit:
+        for _score, item in ranked:
+            if len(selected) >= limit:
+                break
+            if item in selected:
+                continue
+            text = str(question_text(item) or "").strip()
+            if not text:
+                continue
+            if any(questions_are_similar(text, existing) for existing in selected_texts):
+                continue
+            selected.append(item)
+            selected_texts.append(text)
+
+    return selected[:limit]
+
+
 def canonical_bank_question(question: str, pool: list[dict]) -> str | None:
     for item in pool:
         bank_question = str(item.get("question", "")).strip()
@@ -254,12 +364,12 @@ def _rank_and_limit(
 
 
 def _rank_score(item: AggregatedQuestion, relevance_text: str) -> float:
-    frequency_score = item.times_seen * 10
-    overlap = _keyword_overlap(
-        f"{item.question} {' '.join(sorted(item.topics))}",
-        relevance_text,
-    )
-    return frequency_score + overlap
+    question_blob = _question_blob(item.question, item.topics)
+    overlap = _keyword_overlap(question_blob, relevance_text)
+    overlap_score = overlap * 15.0
+    frequency_score = min(item.times_seen * 3, 15)
+    stack_score = _stack_alignment_score(question_blob, relevance_text)
+    return overlap_score + frequency_score + stack_score
 
 
 def _keyword_overlap(left: str, right: str) -> int:

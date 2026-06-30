@@ -31,6 +31,18 @@ def main() -> int:
 
     init_database()
     stats = question_bank_store.backfill_from_directory(args.results_dir)
+
+    from app.db.prep_question_store import prep_question_store
+
+    if prep_question_store.is_enabled():
+        rebuild_stats = prep_question_store.rebuild_all()
+        print(
+            "Prep catalog rebuilt: "
+            f"{rebuild_stats['polished']} polished, "
+            f"{rebuild_stats['skipped']} skipped, "
+            f"{rebuild_stats['errors']} errors"
+        )
+
     print(
         f"Backfill complete: {stats['imported']} imported, "
         f"{stats['skipped']} skipped, {stats['errors']} errors "

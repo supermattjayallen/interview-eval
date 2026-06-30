@@ -205,7 +205,7 @@ button {
   transition: transform 0.15s ease, opacity 0.15s ease;
 }
 
-button[type="button"]:not(.prep-submit-btn):not(.qa-regenerate-btn),
+button[type="button"]:not(.prep-submit-btn):not(.qa-regenerate-btn):not(.qa-polish-btn),
 button.link-btn {
   margin-top: 0;
   width: auto;
@@ -464,7 +464,7 @@ button:disabled {
 
 .qa-block-header {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 0.75rem;
   margin-bottom: 0.35rem;
@@ -474,6 +474,29 @@ button:disabled {
   margin: 0;
 }
 
+.qa-ideal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.45rem;
+}
+
+.qa-ideal-source {
+  margin: 0 0 0.5rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.qa-ideal-hint {
+  margin: 0 0 0.65rem;
+  font-size: 0.88rem;
+  color: var(--text-muted);
+}
+
+.qa-polish-btn,
 .qa-regenerate-btn {
   width: auto;
   margin: 0;
@@ -486,8 +509,14 @@ button:disabled {
   font-weight: 600;
 }
 
+.qa-polish-btn:hover:not(:disabled),
 .qa-regenerate-btn:hover:not(:disabled) {
   background: var(--accent-soft);
+}
+
+.qa-polish-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .qa-ideal-answer {
@@ -495,6 +524,20 @@ button:disabled {
   font-family: "Segoe UI", sans-serif;
   line-height: 1.6;
   white-space: pre-wrap;
+}
+
+.qa-ideal-answer.qa-ideal-placeholder {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.qa-ideal-points-block {
+  margin-top: 0.85rem;
+}
+
+.qa-ideal-points-block h3 {
+  margin: 0 0 0.35rem;
+  font-size: 0.92rem;
 }
 
 .qa-columns {
@@ -1344,6 +1387,10 @@ select {
   font-family: "DM Sans", "Segoe UI", sans-serif;
   font-size: 0.8rem;
   color: var(--text-muted);
+}
+
+.prep-bank-line {
+  font-style: italic;
 }
 
 .prep-question-body {

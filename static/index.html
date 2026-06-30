@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/styles.css?v=7">
+  <link rel="stylesheet" href="/static/styles.css?v=11">
 </head>
 <body>
   <div class="page">
@@ -201,12 +201,6 @@
               </header>
 
               <div class="prep-grid">
-                <div class="field span-2">
-                  <label for="saved-job">Saved job description</label>
-                  <select id="saved-job" name="job_id" class="prep-input">
-                    <option value="">New job description</option>
-                  </select>
-                </div>
                 <div class="field">
                   <label for="prep-interview-step">Interview step</label>
                   <select id="prep-interview-step" name="interview_step" class="prep-input" required>
@@ -300,7 +294,7 @@
                 <span class="prep-block-num" aria-hidden="true">3</span>
                 <div>
                   <h3 class="prep-block-title">Job description</h3>
-                  <p class="prep-block-lead">Paste the posting so we can tailor role-specific questions.</p>
+                  <p class="prep-block-lead">Paste the posting to rank which bank questions are most relevant.</p>
                 </div>
               </header>
 
@@ -315,12 +309,6 @@
                   placeholder="Paste responsibilities, required skills, seniority, tech stack, and anything else from the job posting..."
                 ></textarea>
               </div>
-
-              <label class="prep-save-toggle">
-                <input id="save-job-description" name="save_job_description" type="checkbox" checked>
-                <span class="prep-save-toggle-box" aria-hidden="true"></span>
-                <span>Save this job description for next time</span>
-              </label>
             </section>
 
             <button id="prep-submit-btn" class="prep-submit-btn" type="submit">
@@ -374,6 +362,6 @@
     </main>
   </div>
 
-  <script src="/static/app.js?v=7"></script>
+  <script src="/static/app.js?v=17"></script>
 </body>
 </html>

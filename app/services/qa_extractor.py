@@ -46,12 +46,10 @@ EVALUATION_SYSTEM_PROMPT = """You evaluate extracted interview question-and-answ
 For each pair:
 1. Score the candidate answer 0-10
 2. Identify strengths and gaps
-3. Write a complete "better answer" the candidate could have given
 
 Rules:
 - Judge only the provided question and answer
-- The better answer should be a full, spoken-style response (2-6 paragraphs when needed)
-- The better answer should directly address the question and cover missing points
+- Do not write a suggested better answer — scoring and gap analysis only
 - Be fair but rigorous
 - Return valid JSON only"""
 
@@ -62,6 +60,17 @@ Rules:
 - Write a complete, spoken-style response (2-6 paragraphs when needed)
 - Directly address the question and cover important points the candidate missed
 - Do not score, critique, or summarize — only produce the improved answer
+- Return valid JSON only"""
+
+
+POLISH_EXTRACTED_SYSTEM_PROMPT = """You lightly edit a candidate's interview answer so it reads naturally when spoken aloud.
+
+Rules:
+- Preserve every fact, example, metric, and claim from the original answer
+- Do not invent experience, tools, or outcomes the candidate did not mention
+- Fix grammar, filler, repetition, and awkward phrasing
+- Keep the same structure and level of detail unless trimming obvious verbal clutter
+- Write in first person as the candidate
 - Return valid JSON only"""
 
 
@@ -218,9 +227,7 @@ Return JSON:
       "quality": "excellent|good|partial|weak|incorrect|not_answered",
       "score": 0,
       "strengths": ["..."],
-      "gaps": ["..."],
-      "ideal_answer": "A complete better answer the candidate could give, written in full sentences",
-      "ideal_answer_points": ["key point 1", "key point 2"]
+      "gaps": ["..."]
     }}
   ]
 }}"""
@@ -257,8 +264,9 @@ Return JSON:
                     "score": evaluation.get("score", 0),
                     "strengths": evaluation.get("strengths", []),
                     "gaps": evaluation.get("gaps", []),
-                    "ideal_answer": evaluation.get("ideal_answer", ""),
-                    "ideal_answer_points": evaluation.get("ideal_answer_points", []),
+                    "ideal_answer": "",
+                    "ideal_answer_points": [],
+                    "ideal_answer_generated": False,
                 }
             )
         return merged
@@ -327,6 +335,72 @@ Return JSON:
         }
     except (json.JSONDecodeError, TypeError, ValueError) as exc:
         raise QAEvaluationError(f"Failed to parse regenerated ideal answer: {exc}") from exc
+
+
+def polish_extracted_answer_for_pair(
+    request: InterviewAnalysisRequest,
+    *,
+    question: str,
+    answer: str,
+) -> dict[str, str | list[str]]:
+    """Proofread the extracted answer for natural spoken delivery without changing its substance."""
+    answer = (answer or "").strip()
+    if not answer:
+        raise QAEvaluationError("No extracted answer to polish")
+
+    client = OpenAI(api_key=settings.openai_api_key)
+
+    context_parts = []
+    if request.role_title:
+        context_parts.append(f"Role title: {request.role_title}")
+    if request.role_description:
+        context_parts.append(f"Role description: {request.role_description}")
+
+    pair_payload = {
+        "question": question,
+        "answer": answer,
+    }
+
+    user_prompt = f"""Polish this extracted interview answer for clarity and natural spoken delivery.
+
+{chr(10).join(context_parts) if context_parts else "No extra role context provided."}
+
+Pair:
+{json.dumps(pair_payload, indent=2)}
+
+Return JSON:
+{{
+  "ideal_answer": "The same answer, proofread and made more natural to say aloud",
+  "ideal_answer_points": ["key point 1", "key point 2"]
+}}"""
+
+    response = client.chat.completions.create(
+        model=settings.openai_model,
+        messages=[
+            {"role": "system", "content": POLISH_EXTRACTED_SYSTEM_PROMPT},
+            {"role": "user", "content": user_prompt},
+        ],
+        response_format={"type": "json_object"},
+        temperature=0.2,
+    )
+
+    content = response.choices[0].message.content
+    if not content:
+        raise QAEvaluationError("Polished answer returned empty response")
+
+    try:
+        data = json.loads(content)
+        polished = str(data.get("ideal_answer", "")).strip()
+        if not polished:
+            raise QAEvaluationError("Polished answer was empty")
+        return {
+            "ideal_answer": polished,
+            "ideal_answer_points": [
+                str(point).strip() for point in data.get("ideal_answer_points", []) if str(point).strip()
+            ],
+        }
+    except (json.JSONDecodeError, TypeError, ValueError) as exc:
+        raise QAEvaluationError(f"Failed to parse polished answer: {exc}") from exc
 
 
 def _split_transcript(transcript: str, max_chars: int = 28000) -> list[str]:

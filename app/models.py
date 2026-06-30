@@ -1,7 +1,7 @@
 from enum import Enum
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field, HttpUrl, field_validator
+from pydantic import BaseModel, Field, HttpUrl, field_validator, model_validator
 
 from app.interview_steps import InterviewStep
 from app.prep_categories import PrepQuestionCategory, default_prep_categories, normalize_prep_category
@@ -41,7 +41,7 @@ class InterviewAnalysisRequest(BaseModel):
     )
     skip_evaluation: bool = Field(
         False,
-        description="Extract Q&A only; skip scoring, ideal answers, and feedback",
+        description="Extract Q&A only; skip scoring and feedback (better answers can still be generated on demand)",
     )
 
 
@@ -59,6 +59,22 @@ class QuestionAnswerPair(BaseModel):
     strengths: list[str] = Field(default_factory=list)
     gaps: list[str] = Field(default_factory=list)
     ideal_answer_points: list[str] = Field(default_factory=list)
+    ideal_answer_generated: bool = Field(
+        default=False,
+        description="True only after the user explicitly requested a better answer",
+    )
+    ideal_answer_source: str | None = Field(
+        default=None,
+        description="How the ideal answer was produced: regenerated, polished_extracted, etc.",
+    )
+
+    @model_validator(mode="after")
+    def strip_unrequested_ideal_answer(self) -> "QuestionAnswerPair":
+        if not self.ideal_answer_generated:
+            self.ideal_answer = ""
+            self.ideal_answer_points = []
+            self.ideal_answer_source = None
+        return self
 
 
 class InterviewFeedback(BaseModel):
@@ -178,20 +194,6 @@ class BatchAnalysisResponse(BaseModel):
     items: list[BatchAnalysisItem]
 
 
-class SavedJobDescription(BaseModel):
-    job_id: str
-    role_title: str
-    role_description: str
-    company: Optional[str] = None
-    saved_at: str
-
-
-class SaveJobDescriptionRequest(BaseModel):
-    role_title: str = Field(..., min_length=1)
-    role_description: str = Field(..., min_length=1)
-    company: Optional[str] = None
-
-
 class InterviewPrepRequest(BaseModel):
     role_title: str = Field(..., min_length=1)
     role_description: str = Field(..., min_length=1)
@@ -200,11 +202,6 @@ class InterviewPrepRequest(BaseModel):
         description="The interview round you are preparing for",
     )
     company: Optional[str] = None
-    job_id: Optional[str] = Field(None, description="Use a previously saved job description")
-    save_job_description: bool = Field(
-        True,
-        description="Save this job description for future prep sessions",
-    )
     question_count: int = Field(
         10,
         ge=4,
@@ -219,13 +216,14 @@ class InterviewPrepRequest(BaseModel):
 
 
 class PredictedQuestion(BaseModel):
-    question: str
+    question: str = Field(..., description="Polished question shown in interview prep")
+    original_question: Optional[str] = Field(
+        None,
+        description="Raw question text from the saved interview bank, if different",
+    )
     category: PrepQuestionCategory
-    why_likely: str
-    source: Literal["past_interview", "job_description", "both"] = "both"
+    source: Literal["past_interview", "job_description", "both"] = "past_interview"
     based_on_role: Optional[str] = None
-    preparation_tips: list[str] = Field(default_factory=list)
-    strong_answer_outline: str = ""
 
     @field_validator("category", mode="before")
     @classmethod
@@ -252,6 +250,5 @@ class InterviewPrepResult(BaseModel):
     prep_summary: str
     predicted_questions: list[PredictedQuestion]
     focus_areas: list[str] = Field(default_factory=list)
-    saved_job_id: Optional[str] = None
     requested_question_count: int = 10
     requested_categories: list[PrepQuestionCategory] = Field(default_factory=default_prep_categories)

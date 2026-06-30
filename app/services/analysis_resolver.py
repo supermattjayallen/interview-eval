@@ -3,7 +3,6 @@ from typing import Optional
 
 from app.models import AnalysisJobStatus, InterviewAnalysisRequest, InterviewAnalysisResult
 from app.services.analyzer import AnalysisError, analyze_interview, reevaluate_interview
-from app.services.job_store import job_store
 from app.services.recording_fetcher import RecordingFetchError, cleanup_job_dir, fetch_recording
 from app.services.result_store import ResultStoreError, result_store
 from app.services.transcriber import TranscriptionError, transcribe_audio
@@ -74,8 +73,6 @@ def resolve_analysis(
                 notify(AnalysisJobStatus.ANALYZING, "Re-evaluating with updated evaluation criteria...")
                 result = reevaluate_interview(request, cached)
                 result_store.save(request, result)
-                if request.role_title and request.role_description:
-                    job_store.save(request.role_title, request.role_description)
                 return ResolvedAnalysis(
                     result,
                     AnalysisJobStatus.COMPLETED,
@@ -86,16 +83,11 @@ def resolve_analysis(
                 notify(AnalysisJobStatus.ANALYZING, "Evaluating previously extracted answers...")
                 result = reevaluate_interview(request, cached)
                 result_store.save(request, result)
-                if request.role_title and request.role_description:
-                    job_store.save(request.role_title, request.role_description)
                 return ResolvedAnalysis(
                     result,
                     AnalysisJobStatus.COMPLETED,
                     "Evaluated answers for previously saved question bank entry",
                 )
-
-            if request.role_title and request.role_description:
-                job_store.save(request.role_title, request.role_description)
 
             source = cached.storage_source or "saved storage"
             return ResolvedAnalysis(
@@ -120,9 +112,6 @@ def resolve_analysis(
         )
         result = analyze_interview(request, transcript)
         locations = result_store.save(request, result)
-
-        if request.role_title and request.role_description:
-            job_store.save(request.role_title, request.role_description)
 
         save_message = "Question bank saved (evaluation skipped)" if result.evaluation_skipped else "Analysis complete"
         if locations:

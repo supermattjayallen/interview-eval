@@ -26,7 +26,6 @@ services:
     environment:
       TEMP_DIR: /app/tmp
       RESULTS_DIR: /app/data/results
-      JOBS_DIR: /app/data/jobs
       DATABASE_URL: postgresql+psycopg2://interview_eval:interview_eval@postgres:5432/interview_eval
     volumes:
       - interview-data:/app/data

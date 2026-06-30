@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=ENV_FILE,
         env_file_encoding="utf-8",
+        extra="ignore",
     )
 
     openai_api_key: str = ""
@@ -21,7 +22,6 @@ class Settings(BaseSettings):
     max_recording_duration_seconds: int = 7200
     temp_dir: str = "./tmp"
     results_dir: str = "./data/results"
-    jobs_dir: str = "./data/jobs"
     database_url: str = ""
     prep_max_matching_questions: int = 120
     prep_max_other_questions: int = 30

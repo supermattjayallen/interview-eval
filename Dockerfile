@@ -14,10 +14,9 @@ COPY static ./static
 COPY cli.py .
 
 ENV TEMP_DIR=/app/tmp \
-    RESULTS_DIR=/app/data/results \
-    JOBS_DIR=/app/data/jobs
+    RESULTS_DIR=/app/data/results
 
-RUN mkdir -p /app/tmp /app/data/results /app/data/jobs
+RUN mkdir -p /app/tmp /app/data/results
 
 EXPOSE 8002
 

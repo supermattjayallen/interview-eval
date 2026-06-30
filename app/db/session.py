@@ -46,4 +46,16 @@ def init_database() -> None:
     Base.metadata.create_all(bind=engine)
     with engine.connect() as connection:
         connection.execute(text("SELECT 1"))
+        connection.execute(
+            text(
+                "ALTER TABLE prep_questions ADD COLUMN IF NOT EXISTS avg_score DOUBLE PRECISION"
+            )
+        )
+        connection.execute(
+            text(
+                "ALTER TABLE prep_questions ADD COLUMN IF NOT EXISTS "
+                "interview_steps JSONB DEFAULT '[]'::jsonb"
+            )
+        )
+        connection.commit()
     logger.info("PostgreSQL schema ready")

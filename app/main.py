@@ -8,7 +8,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.auth import TeamBasicAuthMiddleware, team_auth_enabled
-from app.db import database_enabled, init_database
+from app.db import database_enabled, init_database, prep_question_store
 from app.db.question_bank import question_bank_store
 from app.interview_steps import INTERVIEW_STEP_LABELS, InterviewStep
 from app.prep_categories import PREP_CATEGORY_LABELS, PrepQuestionCategory
@@ -22,12 +22,9 @@ from app.models import (
     InterviewPrepResult,
     RegenerateIdealAnswerRequest,
     RegenerateIdealAnswerResponse,
-    SaveJobDescriptionRequest,
-    SavedJobDescription,
 )
 from app.services.interview_prep import InterviewPrepError, prepare_for_interview
-from app.services.job_store import job_store
-from app.services.analyzer import AnalysisError, regenerate_ideal_answer
+from app.services.analyzer import AnalysisError, polish_extracted_answer, regenerate_ideal_answer
 from app.services.pipeline import get_batch, get_job, run_analysis_sync, start_analysis, start_batch_analysis
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -74,6 +71,7 @@ def health() -> dict[str, str | int]:
     if database_enabled():
         try:
             status["postgres_recordings"] = question_bank_store.count_recordings()
+            status["prep_questions"] = prep_question_store.count_prep_questions()
             status["postgres"] = "ok"
         except Exception as exc:
             status["postgres"] = "error"
@@ -144,7 +142,7 @@ def analyze_sync(request: InterviewAnalysisRequest) -> InterviewAnalysisResult:
 def regenerate_ideal_answer_endpoint(
     request: RegenerateIdealAnswerRequest,
 ) -> RegenerateIdealAnswerResponse:
-    """Regenerate the better answer for one question without changing its score."""
+    """Generate the better answer for one question on demand."""
     try:
         qa_pair = regenerate_ideal_answer(
             recording_url=str(request.recording_url),
@@ -161,18 +159,25 @@ def regenerate_ideal_answer_endpoint(
     )
 
 
-@app.post("/jobs", response_model=SavedJobDescription)
-def save_job_description(request: SaveJobDescriptionRequest) -> SavedJobDescription:
-    return job_store.save(
-        role_title=request.role_title,
-        role_description=request.role_description,
-        company=request.company,
+@app.post("/analyze/polish-extracted-answer", response_model=RegenerateIdealAnswerResponse)
+def polish_extracted_answer_endpoint(
+    request: RegenerateIdealAnswerRequest,
+) -> RegenerateIdealAnswerResponse:
+    """Proofread the extracted answer and save it as the ideal answer."""
+    try:
+        qa_pair = polish_extracted_answer(
+            recording_url=str(request.recording_url),
+            question_index=request.question_index,
+        )
+    except AnalysisError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    return RegenerateIdealAnswerResponse(
+        question_index=request.question_index,
+        qa_pair=qa_pair,
     )
-
-
-@app.get("/jobs", response_model=list[SavedJobDescription])
-def list_job_descriptions() -> list[SavedJobDescription]:
-    return job_store.list_all()
 
 
 @app.post("/prepare", response_model=InterviewPrepResult)

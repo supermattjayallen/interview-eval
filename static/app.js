@@ -282,6 +282,85 @@ function renderChips(containerId, items, extraClass = "") {
   }
 }
 
+function idealAnswerButtonLabel(qa) {
+  if (!hasGeneratedIdeal(qa)) {
+    return "Generate better answer";
+  }
+  if (qa.ideal_answer_source === "polished_extracted") {
+    return "Generate better answer";
+  }
+  return "Regenerate";
+}
+
+function idealAnswerSourceLabel(qa) {
+  if (!hasGeneratedIdeal(qa)) {
+    return "";
+  }
+  if (qa.ideal_answer_source === "polished_extracted") {
+    return "Saved from your recording";
+  }
+  return "AI-generated";
+}
+
+function hasGeneratedIdeal(qa) {
+  return Boolean(qa?.ideal_answer?.trim()) && Boolean(qa?.ideal_answer_generated);
+}
+
+function renderIdealAnswerActions(qa, index) {
+  const hasIdeal = hasGeneratedIdeal(qa);
+  const hasExtractedAnswer = Boolean(qa?.answer?.trim());
+  const usingExtracted = qa?.ideal_answer_source === "polished_extracted";
+
+  if (!hasIdeal) {
+    return `<button type="button" class="qa-regenerate-btn" data-index="${index}">Generate better answer</button>`;
+  }
+
+  const buttons = [
+    `<button type="button" class="qa-regenerate-btn" data-index="${index}">${idealAnswerButtonLabel(qa)}</button>`,
+  ];
+
+  if (hasExtractedAnswer && !usingExtracted) {
+    buttons.push(
+      `<button type="button" class="qa-polish-btn" data-index="${index}">Use my extracted answer</button>`,
+    );
+  }
+
+  return buttons.join("");
+}
+
+function renderIdealAnswerBlock(qa, index) {
+  const hasIdeal = hasGeneratedIdeal(qa);
+  const hasExtractedAnswer = Boolean(qa?.answer?.trim());
+  const usingExtracted = qa?.ideal_answer_source === "polished_extracted";
+  const sourceLabel = idealAnswerSourceLabel(qa);
+  const showCompareHint = hasIdeal && hasExtractedAnswer && !usingExtracted;
+  return `
+    <div class="qa-block qa-block-ideal">
+      <div class="qa-block-header">
+        <h3>Better answer</h3>
+        <div class="qa-ideal-actions">
+          ${renderIdealAnswerActions(qa, index)}
+        </div>
+      </div>
+      ${sourceLabel ? `<p class="qa-ideal-source">${escapeHtml(sourceLabel)}</p>` : ""}
+      ${showCompareHint ? `<p class="qa-ideal-hint">Compare with your answer above. Prefer what you said on the recording?</p>` : ""}
+      <p class="qa-ideal-answer ${hasIdeal ? "" : "qa-ideal-placeholder"}">${
+        hasIdeal
+          ? escapeHtml(qa.ideal_answer)
+          : "Generate a suggested answer first, then choose whether to keep it or use your recording answer."
+      }</p>
+      ${
+        hasIdeal
+          ? `<div class="qa-ideal-points-block">
+        <h3>Key points to include</h3>
+        <ul class="qa-ideal-points">${renderListItems(qa.ideal_answer_points)}</ul>
+      </div>`
+          : ""
+      }
+    </div>
+  `;
+}
+
 function renderQaList(qaPairs, evaluationSkipped = false) {
   const container = qaList;
   container.innerHTML = "";
@@ -307,14 +386,7 @@ function renderQaList(qaPairs, evaluationSkipped = false) {
       ${
         evaluationSkipped
           ? ""
-          : `<div class="qa-block qa-block-ideal">
-        <div class="qa-block-header">
-          <h3>Better answer</h3>
-          <button type="button" class="qa-regenerate-btn" data-index="${index}">Regenerate</button>
-        </div>
-        <p class="qa-ideal-answer">${escapeHtml(qa.ideal_answer || "No suggested answer generated.")}</p>
-      </div>
-      <div class="qa-columns">
+          : `<div class="qa-columns">
         <div>
           <h3>Strengths</h3>
           <ul>${renderListItems(qa.strengths)}</ul>
@@ -323,36 +395,50 @@ function renderQaList(qaPairs, evaluationSkipped = false) {
           <h3>Gaps</h3>
           <ul>${renderListItems(qa.gaps)}</ul>
         </div>
-        <div>
-          <h3>Key points to include</h3>
-          <ul class="qa-ideal-points">${renderListItems(qa.ideal_answer_points)}</ul>
-        </div>
       </div>`
       }
+      ${renderIdealAnswerBlock(qa, index)}
     `;
     container.appendChild(item);
   });
 }
 
 qaList.addEventListener("click", async (event) => {
-  const button = event.target.closest(".qa-regenerate-btn");
+  const polishButton = event.target.closest(".qa-polish-btn");
+  const regenerateButton = event.target.closest(".qa-regenerate-btn");
+  const button = polishButton || regenerateButton;
   if (!button || !currentAnalysisResult) {
     return;
   }
+
+  event.preventDefault();
 
   const index = Number(button.dataset.index);
   if (Number.isNaN(index)) {
     return;
   }
 
+  const endpoint = polishButton
+    ? "/analyze/polish-extracted-answer"
+    : "/analyze/regenerate-ideal-answer";
+  const loadingText = polishButton ? "Saving..." : "Generating...";
+
   clearError();
   const originalText = button.textContent;
   button.disabled = true;
-  button.textContent = "Regenerating...";
+  button.textContent = loadingText;
+  button
+    .closest(".qa-ideal-actions")
+    ?.querySelectorAll("button")
+    .forEach((peer) => {
+      peer.disabled = true;
+    });
 
+  let succeeded = false;
   try {
-    const response = await fetch("/analyze/regenerate-ideal-answer", {
+    const response = await fetch(endpoint, {
       method: "POST",
+      credentials: "same-origin",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         recording_url: currentAnalysisResult.recording_url,
@@ -365,13 +451,32 @@ qaList.addEventListener("click", async (event) => {
     }
 
     const data = await response.json();
+    if (!data.qa_pair?.ideal_answer?.trim()) {
+      throw new Error("The server returned an empty better answer. Try again.");
+    }
+    if (!data.qa_pair.ideal_answer_generated) {
+      data.qa_pair.ideal_answer_generated = true;
+    }
+
     currentAnalysisResult.qa_pairs[index] = data.qa_pair;
     updateQaIdealAnswer(index, data.qa_pair);
+    succeeded = true;
   } catch (error) {
-    showError(error.message || "Could not regenerate better answer.");
+    showError(error.message || "Could not update the better answer.");
+    errorPanel?.scrollIntoView({ behavior: "smooth", block: "nearest" });
   } finally {
-    button.disabled = false;
-    button.textContent = originalText;
+    if (!succeeded && button.isConnected) {
+      const actions = button.closest(".qa-ideal-actions");
+      actions?.querySelectorAll("button").forEach((peer) => {
+        peer.disabled = false;
+      });
+      button.textContent = originalText;
+      const qa = currentAnalysisResult.qa_pairs[index];
+      const polishBtn = actions?.querySelector(".qa-polish-btn");
+      if (polishBtn && !qa?.answer?.trim()) {
+        polishBtn.disabled = true;
+      }
+    }
   }
 });
 
@@ -381,13 +486,30 @@ function updateQaIdealAnswer(index, qa) {
     return;
   }
 
-  const ideal = item.querySelector(".qa-ideal-answer");
-  const pointsList = item.querySelector(".qa-ideal-points");
-  if (ideal) {
-    ideal.textContent = qa.ideal_answer || "No suggested answer generated.";
+  const idealBlock = item.querySelector(".qa-block-ideal");
+  if (idealBlock) {
+    idealBlock.outerHTML = renderIdealAnswerBlock(qa, index);
+    return;
   }
-  if (pointsList) {
-    pointsList.innerHTML = renderListItems(qa.ideal_answer_points);
+
+  const ideal = item.querySelector(".qa-ideal-answer");
+  const pointsBlock = item.querySelector(".qa-ideal-points-block");
+  const button = item.querySelector(".qa-regenerate-btn");
+  if (button) {
+    button.textContent = idealAnswerButtonLabel(qa);
+  }
+  if (ideal) {
+    const hasIdeal = hasGeneratedIdeal(qa);
+    ideal.classList.toggle("qa-ideal-placeholder", !hasIdeal);
+    ideal.textContent = hasIdeal
+      ? qa.ideal_answer
+      : "Generate a suggested answer first, then choose whether to keep it or use your recording answer.";
+  }
+  if (pointsBlock && hasGeneratedIdeal(qa)) {
+    pointsBlock.outerHTML = `<div class="qa-ideal-points-block">
+        <h3>Key points to include</h3>
+        <ul class="qa-ideal-points">${renderListItems(qa.ideal_answer_points)}</ul>
+      </div>`;
   }
 }
 
@@ -478,10 +600,11 @@ const prepForm = document.getElementById("prep-form");
 const prepSubmitBtn = document.getElementById("prep-submit-btn");
 const prepErrorPanel = document.getElementById("prep-error-panel");
 const prepResultsSection = document.getElementById("prep-results");
-const savedJobSelect = document.getElementById("saved-job");
 
 const prepCategoryLabels = {};
 const prepCategoryValues = [];
+
+const DEFAULT_UNCHECKED_PREP_CATEGORIES = new Set(["logistics", "other"]);
 
 const PREP_CATEGORY_GROUPS = [
   { label: "Skills & depth", values: ["technical", "coding", "system_design"] },
@@ -521,7 +644,6 @@ tabs.forEach((tab) => {
   });
 });
 
-loadSavedJobs();
 loadInterviewSteps();
 loadPrepCategories();
 wirePrepCategoryControls();
@@ -599,15 +721,16 @@ async function loadPrepCategories() {
 
       for (const value of groupValues) {
         const category = byValue.get(value);
+        const checked = !DEFAULT_UNCHECKED_PREP_CATEGORIES.has(value);
         const label = document.createElement("label");
-        label.className = "category-chip is-selected";
+        label.className = checked ? "category-chip is-selected" : "category-chip";
         label.dataset.category = value;
         label.innerHTML = `
           <input
             type="checkbox"
             name="question_categories"
             value="${escapeHtml(value)}"
-            checked
+            ${checked ? "checked" : ""}
           >
           <span>${escapeHtml(category.label)}</span>
         `;
@@ -744,16 +867,6 @@ function populateStepSelect(selectId, steps, required) {
   }
 }
 
-savedJobSelect.addEventListener("change", () => {
-  const option = savedJobSelect.selectedOptions[0];
-  if (!option || !option.dataset.title) {
-    return;
-  }
-  document.getElementById("prep-role-title").value = option.dataset.title || "";
-  document.getElementById("prep-company").value = option.dataset.company || "";
-  document.getElementById("prep-role-description").value = option.dataset.description || "";
-});
-
 prepForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   clearPrepError();
@@ -773,15 +886,9 @@ prepForm.addEventListener("submit", async (event) => {
     role_description: formData.get("role_description"),
     interview_step: formData.get("interview_step"),
     company: formData.get("company") || null,
-    save_job_description: formData.get("save_job_description") === "on",
     question_count: Number(formData.get("question_count") || 10),
     question_categories: selectedCategories,
   };
-
-  const jobId = formData.get("job_id");
-  if (jobId) {
-    payload.job_id = jobId;
-  }
 
   try {
     const response = await fetch("/prepare", {
@@ -796,46 +903,12 @@ prepForm.addEventListener("submit", async (event) => {
 
     const result = await response.json();
     renderPrepResults(result);
-    await loadSavedJobs(result.saved_job_id);
   } catch (error) {
     showPrepError(error.message || "Something went wrong.");
   } finally {
     setPrepLoading(false);
   }
 });
-
-async function loadSavedJobs(selectJobId = "") {
-  try {
-    const response = await fetch("/jobs");
-    if (!response.ok) {
-      return;
-    }
-
-    const jobs = await response.json();
-    savedJobSelect.innerHTML = '<option value="">New job description</option>';
-
-    for (const job of jobs) {
-      const option = document.createElement("option");
-      option.value = job.job_id;
-      option.textContent = job.company
-        ? `${job.role_title} — ${job.company}`
-        : job.role_title;
-      option.dataset.title = job.role_title;
-      option.dataset.company = job.company || "";
-      option.dataset.description = job.role_description;
-      if (job.job_id === selectJobId) {
-        option.selected = true;
-      }
-      savedJobSelect.appendChild(option);
-    }
-
-    if (selectJobId) {
-      savedJobSelect.dispatchEvent(new Event("change"));
-    }
-  } catch {
-    // Ignore job list failures in the UI.
-  }
-}
 
 function renderPrepResults(result) {
   document.getElementById("prep-total-questions").textContent = String(result.predicted_questions.length);
@@ -849,11 +922,11 @@ function renderPrepResults(result) {
   document.getElementById("prep-summary").textContent = result.prep_summary;
   const requested = result.requested_question_count ?? result.predicted_questions.length;
   const returned = result.predicted_questions.length;
-  const available = result.available_bank_questions ?? returned;
+  const available = result.available_bank_questions ?? 0;
   const shortfall = document.getElementById("prep-shortfall-notice");
-  if (returned < requested) {
+  if (returned < requested && available < requested) {
     shortfall.textContent =
-      `Showing ${returned} of ${requested} requested questions — only ${available} unique question(s) exist in your saved bank for this round. Analyze more recordings to add questions; we do not invent new ones from the job description.`;
+      `Showing ${returned} of ${requested} requested questions — your bank has ${available} unique question(s) for this round. Analyze more recordings to add questions.`;
     shortfall.classList.remove("hidden");
   } else {
     shortfall.textContent = "";
@@ -880,22 +953,9 @@ function renderPrepResults(result) {
       </header>
       <p class="prep-question-meta">
         ${escapeHtml(item.source.replaceAll("_", " "))}
-        ${item.based_on_role ? ` · Drawn from ${escapeHtml(item.based_on_role)}` : ""}
+        ${item.based_on_role ? ` · From ${escapeHtml(item.based_on_role)}` : ""}
+        ${item.original_question ? ` · <span class="prep-bank-line">Bank: ${escapeHtml(item.original_question)}</span>` : ""}
       </p>
-      <div class="prep-question-body">
-        <div class="prep-question-block">
-          <h4>Why this is likely</h4>
-          <p>${escapeHtml(item.why_likely)}</p>
-        </div>
-        <div class="prep-question-block is-highlight">
-          <h4>Strong answer outline</h4>
-          <p>${escapeHtml(item.strong_answer_outline || "No outline generated.")}</p>
-        </div>
-        <div class="prep-question-block">
-          <h4>Preparation tips</h4>
-          <ul>${renderListItems(item.preparation_tips)}</ul>
-        </div>
-      </div>
     `;
     container.appendChild(article);
   });

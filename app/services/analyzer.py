@@ -10,6 +10,7 @@ from app.services.qa_extractor import (
     QAEvaluationError,
     evaluate_question_answer_pairs,
     extract_question_answer_pairs,
+    polish_extracted_answer_for_pair,
     regenerate_ideal_answer_for_pair,
 )
 from app.services.speaker_labeler import SpeakerLabelingError, label_speakers
@@ -173,7 +174,7 @@ def regenerate_ideal_answer(
     recording_url: str,
     question_index: int,
 ) -> QuestionAnswerPair:
-    """Regenerate the better answer for one saved Q&A pair without changing the score."""
+    """Generate or refresh the better answer for one saved Q&A pair without changing its score."""
     lookup = InterviewAnalysisRequest(recording_url=recording_url)
     try:
         payload = result_store.load_payload(lookup)
@@ -184,9 +185,6 @@ def regenerate_ideal_answer(
         raise AnalysisError("No saved analysis found for this recording")
 
     result = InterviewAnalysisResult.model_validate(payload["result"])
-    if result.evaluation_skipped:
-        raise AnalysisError("This recording was saved in question-bank mode without evaluations")
-
     if question_index < 0 or question_index >= len(result.qa_pairs):
         raise AnalysisError(f"Question index {question_index} is out of range")
 
@@ -208,6 +206,8 @@ def regenerate_ideal_answer(
         update={
             "ideal_answer": regenerated["ideal_answer"],
             "ideal_answer_points": regenerated["ideal_answer_points"],
+            "ideal_answer_generated": True,
+            "ideal_answer_source": "regenerated",
         }
     )
     qa_pairs = list(result.qa_pairs)
@@ -216,6 +216,59 @@ def regenerate_ideal_answer(
     result_store.save(saved_request, updated_result)
 
     logger.info("Regenerated ideal answer for question %d on %s", question_index + 1, recording_url)
+    return updated_qa
+
+
+def polish_extracted_answer(
+    recording_url: str,
+    question_index: int,
+) -> QuestionAnswerPair:
+    """Proofread the extracted answer and save it as the ideal answer."""
+    lookup = InterviewAnalysisRequest(recording_url=recording_url)
+    try:
+        payload = result_store.load_payload(lookup)
+    except ResultStoreError as exc:
+        raise AnalysisError(f"Could not load saved result: {exc}") from exc
+
+    if not payload:
+        raise AnalysisError("No saved analysis found for this recording")
+
+    result = InterviewAnalysisResult.model_validate(payload["result"])
+    if question_index < 0 or question_index >= len(result.qa_pairs):
+        raise AnalysisError(f"Question index {question_index} is out of range")
+
+    saved_request = InterviewAnalysisRequest.model_validate(payload["request"])
+    qa = result.qa_pairs[question_index]
+    if not (qa.answer or "").strip():
+        raise AnalysisError("This question has no extracted answer to save")
+    if not qa.ideal_answer_generated:
+        raise AnalysisError(
+            "Generate a better answer first so you can compare, then save your extracted answer if you prefer it."
+        )
+
+    try:
+        polished = polish_extracted_answer_for_pair(
+            saved_request,
+            question=qa.question,
+            answer=qa.answer,
+        )
+    except QAEvaluationError as exc:
+        raise AnalysisError(str(exc)) from exc
+
+    updated_qa = qa.model_copy(
+        update={
+            "ideal_answer": polished["ideal_answer"],
+            "ideal_answer_points": polished["ideal_answer_points"],
+            "ideal_answer_generated": True,
+            "ideal_answer_source": "polished_extracted",
+        }
+    )
+    qa_pairs = list(result.qa_pairs)
+    qa_pairs[question_index] = updated_qa
+    updated_result = result.model_copy(update={"qa_pairs": qa_pairs})
+    result_store.save(saved_request, updated_result)
+
+    logger.info("Polished extracted answer for question %d on %s", question_index + 1, recording_url)
     return updated_qa
 
 
@@ -232,6 +285,7 @@ def _unevaluated_pairs(extracted_pairs: list[dict]) -> list[dict]:
             "gaps": [],
             "ideal_answer": "",
             "ideal_answer_points": [],
+            "ideal_answer_generated": False,
         }
         for pair in extracted_pairs
     ]
@@ -266,7 +320,6 @@ def _build_summary(request: InterviewAnalysisRequest, evaluated_pairs: list[dict
                 "quality": item["quality"],
                 "strengths": item["strengths"],
                 "gaps": item["gaps"],
-                "ideal_answer_points": item["ideal_answer_points"],
                 "answer_excerpt": item["answer"][:600],
             }
         )
